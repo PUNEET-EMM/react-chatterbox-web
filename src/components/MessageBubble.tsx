@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Message {
   id: string;
@@ -8,6 +9,7 @@ interface Message {
   content: string;
   timestamp: Date;
   type: 'text' | 'image';
+  mediaUrl?: string;
   senderName: string;
   senderAvatar: string;
 }
@@ -17,7 +19,9 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
-  const isMe = message.senderId === 'me';
+  const { user } = useAuth();
+  const isMe = message.senderId === user?.id;
+  
   const timeString = message.timestamp.toLocaleTimeString('en-US', { 
     hour: 'numeric', 
     minute: '2-digit',
@@ -48,7 +52,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
           {message.type === 'image' ? (
             <div className="space-y-2">
               <img
-                src={message.content}
+                src={message.mediaUrl || message.content}
                 alt="Shared image"
                 className="max-w-full h-auto rounded-lg"
                 style={{ maxHeight: '300px' }}

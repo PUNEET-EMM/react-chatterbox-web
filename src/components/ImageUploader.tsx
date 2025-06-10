@@ -3,6 +3,9 @@ import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Camera, Send, X } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface ImageUploaderProps {
   onUpload: (imageUrl: string) => void;
@@ -11,12 +14,16 @@ interface ImageUploaderProps {
 
 const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, onClose }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (e) => {
         setSelectedImage(e.target?.result as string);
@@ -26,21 +33,49 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, onClose }) => {
   };
 
   const handleUpload = async () => {
-    if (!selectedImage) return;
+    if (!selectedFile || !user) return;
     
     setIsUploading(true);
     
-    // Simulate upload - replace with Supabase Storage upload
-    setTimeout(() => {
-      onUpload(selectedImage);
+    try {
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, selectedFile);
+
+      if (error) {
+        toast({
+          title: "Upload Failed",
+          description: error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(data.path);
+
+      onUpload(publicUrl);
+      
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "An error occurred while uploading the image",
+        variant: "destructive"
+      });
+    } finally {
       setIsUploading(false);
-    }, 1000);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setSelectedImage(event.target?.result as string);
@@ -93,7 +128,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, onClose }) => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setSelectedImage(null)}
+                  onClick={() => {
+                    setSelectedImage(null);
+                    setSelectedFile(null);
+                  }}
                   className="absolute top-2 right-2 bg-black bg-opacity-50 text-white hover:bg-opacity-70"
                 >
                   <X className="h-4 w-4" />
@@ -103,7 +141,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, onClose }) => {
               <div className="flex space-x-2">
                 <Button
                   variant="outline"
-                  onClick={() => setSelectedImage(null)}
+                  onClick={() => {
+                    setSelectedImage(null);
+                    setSelectedFile(null);
+                  }}
                   className="flex-1"
                 >
                   Choose Different

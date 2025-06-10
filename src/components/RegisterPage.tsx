@@ -4,33 +4,52 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { MessageSquare } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface RegisterPageProps {
-  onRegister: () => void;
   onSwitchToLogin: () => void;
 }
 
-const RegisterPage: React.FC<RegisterPageProps> = ({ onRegister, onSwitchToLogin }) => {
+const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { signUp } = useAuth();
+  const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (password !== confirmPassword) {
-      alert('Passwords do not match');
+      toast({
+        title: "Password Mismatch",
+        description: "Passwords do not match",
+        variant: "destructive"
+      });
       return;
     }
     
     setIsLoading(true);
     
-    // Simulate registration - replace with Supabase auth
-    setTimeout(() => {
-      setIsLoading(false);
-      onRegister();
-    }, 1000);
+    const { error } = await signUp(email, password, displayName);
+    
+    if (error) {
+      toast({
+        title: "Registration Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Registration Successful!",
+        description: "Please check your email to confirm your account."
+      });
+    }
+    
+    setIsLoading(false);
   };
 
   return (

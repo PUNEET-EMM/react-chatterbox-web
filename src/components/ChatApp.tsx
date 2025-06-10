@@ -5,11 +5,7 @@ import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import ProfileSettings from './ProfileSettings';
 
-interface ChatAppProps {
-  onLogout: () => void;
-}
-
-const ChatApp: React.FC<ChatAppProps> = ({ onLogout }) => {
+const ChatApp: React.FC = () => {
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [showProfile, setShowProfile] = useState(false);
 
@@ -21,7 +17,6 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLogout }) => {
           selectedChat={selectedChat}
           onSelectChat={setSelectedChat}
           onShowProfile={() => setShowProfile(true)}
-          onLogout={onLogout}
         />
       </div>
 

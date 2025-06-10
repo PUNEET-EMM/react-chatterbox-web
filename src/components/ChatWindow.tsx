@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Send, Camera } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import MessageBubble from './MessageBubble';
 import ImageUploader from './ImageUploader';
 
@@ -13,81 +15,35 @@ interface ChatWindowProps {
 
 interface Message {
   id: string;
-  senderId: string;
+  sender_id: string;
   content: string;
-  timestamp: Date;
-  type: 'text' | 'image';
-  senderName: string;
-  senderAvatar: string;
+  created_at: string;
+  message_type: 'text' | 'image';
+  media_url?: string;
+  profiles: {
+    display_name: string;
+    avatar_url?: string;
+  };
 }
 
-// Mock messages - replace with Supabase data
-const mockMessages: Record<string, Message[]> = {
-  '1': [
-    {
-      id: '1',
-      senderId: 'alice',
-      content: 'Hey! How are you doing?',
-      timestamp: new Date('2024-06-10T14:30:00'),
-      type: 'text',
-      senderName: 'Alice Johnson',
-      senderAvatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
-    },
-    {
-      id: '2',
-      senderId: 'me',
-      content: "I'm doing great! Thanks for asking. How about you?",
-      timestamp: new Date('2024-06-10T14:32:00'),
-      type: 'text',
-      senderName: 'Me',
-      senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
-    },
-    {
-      id: '3',
-      senderId: 'alice',
-      content: 'Pretty good! Working on some exciting projects.',
-      timestamp: new Date('2024-06-10T14:35:00'),
-      type: 'text',
-      senderName: 'Alice Johnson',
-      senderAvatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
-    }
-  ],
-  '2': [
-    {
-      id: '4',
-      senderId: 'bob',
-      content: 'Can we meet tomorrow?',
-      timestamp: new Date('2024-06-10T13:15:00'),
-      type: 'text',
-      senderName: 'Bob Smith',
-      senderAvatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150'
-    }
-  ],
-  '3': [
-    {
-      id: '5',
-      senderId: 'carol',
-      content: 'Thanks for the help!',
-      timestamp: new Date('2024-06-10T12:45:00'),
-      type: 'text',
-      senderName: 'Carol Wilson',
-      senderAvatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
-    }
-  ]
-};
-
-const chatInfo = {
-  '1': { name: 'Alice Johnson', avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150', status: 'Available' },
-  '2': { name: 'Bob Smith', avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150', status: 'Busy' },
-  '3': { name: 'Carol Wilson', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150', status: 'At work' }
-};
+interface ChatInfo {
+  id: string;
+  name?: string;
+  is_group: boolean;
+  otherParticipant?: {
+    display_name: string;
+    avatar_url?: string;
+    status: string;
+  };
+}
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
-  const [messages, setMessages] = useState<Message[]>(mockMessages[chatId] || []);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showImageUploader, setShowImageUploader] = useState(false);
+  const [chatInfo, setChatInfo] = useState<ChatInfo | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const currentChat = chatInfo[chatId as keyof typeof chatInfo];
+  const { user } = useAuth();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -97,19 +53,123 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = () => {
-    if (newMessage.trim()) {
-      const message: Message = {
-        id: Date.now().toString(),
-        senderId: 'me',
-        content: newMessage,
-        timestamp: new Date(),
-        type: 'text',
-        senderName: 'Me',
-        senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
+  useEffect(() => {
+    if (chatId && user) {
+      fetchChatInfo();
+      fetchMessages();
+      subscribeToMessages();
+    }
+
+    return () => {
+      // Cleanup subscription
+      supabase.removeAllChannels();
+    };
+  }, [chatId, user]);
+
+  const fetchChatInfo = async () => {
+    const { data: chat } = await supabase
+      .from('chats')
+      .select('*')
+      .eq('id', chatId)
+      .single();
+
+    if (chat) {
+      let chatData: ChatInfo = {
+        id: chat.id,
+        name: chat.name,
+        is_group: chat.is_group
       };
-      
-      setMessages(prev => [...prev, message]);
+
+      if (!chat.is_group) {
+        // Get other participant for one-on-one chat
+        const { data: otherParticipant } = await supabase
+          .from('chat_participants')
+          .select(`
+            profiles!inner (
+              display_name,
+              avatar_url,
+              status
+            )
+          `)
+          .eq('chat_id', chatId)
+          .neq('user_id', user?.id)
+          .single();
+
+        if (otherParticipant) {
+          chatData.otherParticipant = otherParticipant.profiles;
+        }
+      }
+
+      setChatInfo(chatData);
+    }
+  };
+
+  const fetchMessages = async () => {
+    const { data } = await supabase
+      .from('messages')
+      .select(`
+        *,
+        profiles!inner (
+          display_name,
+          avatar_url
+        )
+      `)
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (data) {
+      setMessages(data);
+    }
+  };
+
+  const subscribeToMessages = () => {
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`
+        },
+        async (payload) => {
+          // Fetch the complete message with profile data
+          const { data: newMessage } = await supabase
+            .from('messages')
+            .select(`
+              *,
+              profiles!inner (
+                display_name,
+                avatar_url
+              )
+            `)
+            .eq('id', payload.new.id)
+            .single();
+
+          if (newMessage) {
+            setMessages(prev => [...prev, newMessage]);
+          }
+        }
+      )
+      .subscribe();
+
+    return channel;
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !user) return;
+
+    const { error } = await supabase
+      .from('messages')
+      .insert({
+        chat_id: chatId,
+        sender_id: user.id,
+        content: newMessage,
+        message_type: 'text'
+      });
+
+    if (!error) {
       setNewMessage('');
     }
   };
@@ -121,47 +181,76 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     }
   };
 
-  const handleImageUpload = (imageUrl: string) => {
-    const message: Message = {
-      id: Date.now().toString(),
-      senderId: 'me',
-      content: imageUrl,
-      timestamp: new Date(),
-      type: 'image',
-      senderName: 'Me',
-      senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
-    };
-    
-    setMessages(prev => [...prev, message]);
-    setShowImageUploader(false);
+  const handleImageUpload = async (imageUrl: string) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('messages')
+      .insert({
+        chat_id: chatId,
+        sender_id: user.id,
+        content: 'Image',
+        message_type: 'image',
+        media_url: imageUrl
+      });
+
+    if (!error) {
+      setShowImageUploader(false);
+    }
   };
 
-  if (!currentChat) {
+  if (!chatInfo) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-gray-500">Chat not found</p>
+        <p className="text-gray-500">Loading chat...</p>
       </div>
     );
   }
+
+  const displayName = chatInfo.is_group 
+    ? chatInfo.name 
+    : chatInfo.otherParticipant?.display_name || 'Unknown User';
+  
+  const avatarUrl = chatInfo.is_group 
+    ? '' 
+    : chatInfo.otherParticipant?.avatar_url;
+  
+  const status = chatInfo.is_group 
+    ? 'Group Chat' 
+    : chatInfo.otherParticipant?.status || 'Offline';
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50">
       {/* Chat Header */}
       <div className="bg-white px-6 py-4 border-b border-gray-200 flex items-center space-x-3">
         <Avatar>
-          <AvatarImage src={currentChat.avatar} />
-          <AvatarFallback>{currentChat.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+          <AvatarImage src={avatarUrl || ''} />
+          <AvatarFallback>
+            {displayName.split(' ').map(n => n[0]).join('')}
+          </AvatarFallback>
         </Avatar>
         <div>
-          <h2 className="font-semibold text-gray-800">{currentChat.name}</h2>
-          <p className="text-sm text-green-600">{currentChat.status}</p>
+          <h2 className="font-semibold text-gray-800">{displayName}</h2>
+          <p className="text-sm text-green-600">{status}</p>
         </div>
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble 
+            key={message.id} 
+            message={{
+              id: message.id,
+              senderId: message.sender_id,
+              content: message.content,
+              timestamp: new Date(message.created_at),
+              type: message.message_type,
+              mediaUrl: message.media_url,
+              senderName: message.profiles.display_name,
+              senderAvatar: message.profiles.avatar_url || ''
+            }} 
+          />
         ))}
         <div ref={messagesEndRef} />
       </div>

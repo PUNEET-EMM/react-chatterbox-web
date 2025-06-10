@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,34 +7,126 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Camera } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface ProfileSettingsProps {
   onClose: () => void;
 }
 
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => {
-  const [displayName, setDisplayName] = useState('John Doe');
+  const [displayName, setDisplayName] = useState('');
   const [status, setStatus] = useState('Available');
-  const [avatar, setAvatar] = useState('https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150');
+  const [avatar, setAvatar] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const { user } = useAuth();
+  const { toast } = useToast();
 
-  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setIsUploading(true);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setAvatar(e.target?.result as string);
-        setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
+  useEffect(() => {
+    if (user) {
+      fetchProfile();
+    }
+  }, [user]);
+
+  const fetchProfile = async () => {
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (data) {
+      setDisplayName(data.display_name || '');
+      setStatus(data.status || 'Available');
+      setAvatar(data.avatar_url || '');
     }
   };
 
-  const handleSave = () => {
-    // Save profile changes - integrate with Supabase
-    console.log('Saving profile:', { displayName, status, avatar });
-    onClose();
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/avatar.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, { upsert: true });
+
+      if (error) {
+        toast({
+          title: "Upload Failed",
+          description: error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(data.path);
+
+      setAvatar(publicUrl);
+      
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "An error occurred while uploading the avatar",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+
+    setIsSaving(true);
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          display_name: displayName,
+          status: status,
+          avatar_url: avatar,
+          email: user.email
+        });
+
+      if (error) {
+        toast({
+          title: "Save Failed",
+          description: error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been successfully updated."
+      });
+      
+      onClose();
+      
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: "An error occurred while saving your profile",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -100,8 +192,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => {
           </div>
 
           {/* Save Button */}
-          <Button onClick={handleSave} className="w-full bg-green-500 hover:bg-green-600">
-            Save Changes
+          <Button 
+            onClick={handleSave} 
+            className="w-full bg-green-500 hover:bg-green-600"
+            disabled={isSaving}
+          >
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </Button>
         </CardContent>
       </Card>

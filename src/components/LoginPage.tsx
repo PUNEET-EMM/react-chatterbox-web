@@ -4,26 +4,40 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { MessageSquare } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface LoginPageProps {
-  onLogin: () => void;
   onSwitchToRegister: () => void;
 }
 
-const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSwitchToRegister }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { signIn } = useAuth();
+  const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    // Simulate login - replace with Supabase auth
-    setTimeout(() => {
-      setIsLoading(false);
-      onLogin();
-    }, 1000);
+    const { error } = await signIn(email, password);
+    
+    if (error) {
+      toast({
+        title: "Login Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Welcome back!",
+        description: "You have successfully logged in."
+      });
+    }
+    
+    setIsLoading(false);
   };
 
   return (
