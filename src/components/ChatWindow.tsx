@@ -11,15 +11,25 @@ interface ChatWindowProps {
   chatId: string;
 }
 
+interface Message {
+  id: string;
+  senderId: string;
+  content: string;
+  timestamp: Date;
+  type: 'text' | 'image';
+  senderName: string;
+  senderAvatar: string;
+}
+
 // Mock messages - replace with Supabase data
-const mockMessages = {
+const mockMessages: Record<string, Message[]> = {
   '1': [
     {
       id: '1',
       senderId: 'alice',
       content: 'Hey! How are you doing?',
       timestamp: new Date('2024-06-10T14:30:00'),
-      type: 'text' as const,
+      type: 'text',
       senderName: 'Alice Johnson',
       senderAvatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
     },
@@ -28,7 +38,7 @@ const mockMessages = {
       senderId: 'me',
       content: "I'm doing great! Thanks for asking. How about you?",
       timestamp: new Date('2024-06-10T14:32:00'),
-      type: 'text' as const,
+      type: 'text',
       senderName: 'Me',
       senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
     },
@@ -37,7 +47,7 @@ const mockMessages = {
       senderId: 'alice',
       content: 'Pretty good! Working on some exciting projects.',
       timestamp: new Date('2024-06-10T14:35:00'),
-      type: 'text' as const,
+      type: 'text',
       senderName: 'Alice Johnson',
       senderAvatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
     }
@@ -48,7 +58,7 @@ const mockMessages = {
       senderId: 'bob',
       content: 'Can we meet tomorrow?',
       timestamp: new Date('2024-06-10T13:15:00'),
-      type: 'text' as const,
+      type: 'text',
       senderName: 'Bob Smith',
       senderAvatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150'
     }
@@ -59,7 +69,7 @@ const mockMessages = {
       senderId: 'carol',
       content: 'Thanks for the help!',
       timestamp: new Date('2024-06-10T12:45:00'),
-      type: 'text' as const,
+      type: 'text',
       senderName: 'Carol Wilson',
       senderAvatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
     }
@@ -73,7 +83,7 @@ const chatInfo = {
 };
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
-  const [messages, setMessages] = useState(mockMessages[chatId as keyof typeof mockMessages] || []);
+  const [messages, setMessages] = useState<Message[]>(mockMessages[chatId] || []);
   const [newMessage, setNewMessage] = useState('');
   const [showImageUploader, setShowImageUploader] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -89,12 +99,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
 
   const handleSendMessage = () => {
     if (newMessage.trim()) {
-      const message = {
+      const message: Message = {
         id: Date.now().toString(),
         senderId: 'me',
         content: newMessage,
         timestamp: new Date(),
-        type: 'text' as const,
+        type: 'text',
         senderName: 'Me',
         senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
       };
@@ -112,12 +122,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   };
 
   const handleImageUpload = (imageUrl: string) => {
-    const message = {
+    const message: Message = {
       id: Date.now().toString(),
       senderId: 'me',
       content: imageUrl,
       timestamp: new Date(),
-      type: 'image' as const,
+      type: 'image',
       senderName: 'Me',
       senderAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
     };
