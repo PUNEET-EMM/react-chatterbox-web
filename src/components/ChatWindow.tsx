@@ -82,10 +82,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
 
       if (!chat.is_group) {
         // Get other participant for one-on-one chat
-        const { data: otherParticipant } = await supabase
+        const { data: otherParticipantData } = await supabase
           .from('chat_participants')
           .select(`
-            profiles!inner (
+            profiles (
               display_name,
               avatar_url,
               status
@@ -95,8 +95,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
           .neq('user_id', user?.id)
           .single();
 
-        if (otherParticipant) {
-          chatData.otherParticipant = otherParticipant.profiles;
+        if (otherParticipantData?.profiles) {
+          chatData.otherParticipant = otherParticipantData.profiles;
         }
       }
 
@@ -109,7 +109,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
       .from('messages')
       .select(`
         *,
-        profiles!inner (
+        profiles (
           display_name,
           avatar_url
         )
@@ -118,7 +118,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
       .order('created_at', { ascending: true });
 
     if (data) {
-      setMessages(data);
+      setMessages(data as Message[]);
     }
   };
 
@@ -139,7 +139,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
             .from('messages')
             .select(`
               *,
-              profiles!inner (
+              profiles (
                 display_name,
                 avatar_url
               )
@@ -148,7 +148,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
             .single();
 
           if (newMessage) {
-            setMessages(prev => [...prev, newMessage]);
+            setMessages(prev => [...prev, newMessage as Message]);
           }
         }
       )

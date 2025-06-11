@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,7 +80,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
       .from('chat_participants')
       .select(`
         chat_id,
-        chats!inner (
+        chats (
           id,
           name,
           is_group,
@@ -94,12 +95,12 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
       for (const participant of chatParticipants) {
         const chat = participant.chats;
         
-        if (!chat.is_group) {
+        if (chat && !chat.is_group) {
           // For one-on-one chats, get the other participant
-          const { data: otherParticipant } = await supabase
+          const { data: otherParticipantData } = await supabase
             .from('chat_participants')
             .select(`
-              profiles!inner (
+              profiles (
                 id,
                 display_name,
                 avatar_url,
@@ -110,12 +111,12 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
             .neq('user_id', user.id)
             .single();
 
-          if (otherParticipant) {
+          if (otherParticipantData?.profiles) {
             chatList.push({
               id: chat.id,
               name: chat.name,
               is_group: chat.is_group,
-              participant: otherParticipant.profiles,
+              participant: otherParticipantData.profiles,
               unreadCount: 0 // TODO: Implement unread count
             });
           }
@@ -130,29 +131,30 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
     if (!user) return;
 
     // Check if chat already exists
-    const { data: existingChat } = await supabase
+    const { data: existingChats } = await supabase
       .from('chat_participants')
       .select(`
         chat_id,
-        chats!inner (
+        chats (
           id,
           is_group
         )
       `)
       .eq('user_id', user.id);
 
-    if (existingChat) {
-      for (const participant of existingChat) {
-        if (!participant.chats.is_group) {
+    if (existingChats) {
+      for (const participant of existingChats) {
+        const chat = participant.chats;
+        if (chat && !chat.is_group) {
           const { data: otherParticipant } = await supabase
             .from('chat_participants')
             .select('user_id')
-            .eq('chat_id', participant.chat_id)
+            .eq('chat_id', chat.id)
             .neq('user_id', user.id)
             .single();
 
           if (otherParticipant?.user_id === otherUserId) {
-            onSelectChat(participant.chat_id);
+            onSelectChat(chat.id);
             return;
           }
         }
