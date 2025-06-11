@@ -40,21 +40,23 @@ export const useChatInfo = (chatId: string, userId?: string) => {
 
       if (!chat.is_group) {
         // Get other participant for one-on-one chat
-        const { data: otherParticipantData } = await supabase
+        const { data: participantData } = await supabase
           .from('chat_participants')
-          .select(`
-            profiles (
-              display_name,
-              avatar_url,
-              status
-            )
-          `)
+          .select('user_id')
           .eq('chat_id', chatId)
           .neq('user_id', userId)
           .single();
 
-        if (otherParticipantData?.profiles) {
-          chatData.otherParticipant = otherParticipantData.profiles;
+        if (participantData) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('display_name, avatar_url, status')
+            .eq('id', participantData.user_id)
+            .single();
+
+          if (profileData) {
+            chatData.otherParticipant = profileData;
+          }
         }
       }
 

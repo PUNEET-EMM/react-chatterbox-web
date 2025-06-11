@@ -29,20 +29,30 @@ export const useMessages = (chatId: string) => {
   }, [chatId]);
 
   const fetchMessages = async () => {
-    const { data } = await supabase
+    const { data: messagesData } = await supabase
       .from('messages')
-      .select(`
-        *,
-        profiles!inner (
-          display_name,
-          avatar_url
-        )
-      `)
+      .select('*')
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true });
 
-    if (data) {
-      setMessages(data as Message[]);
+    if (messagesData) {
+      // Fetch profile data separately for each message
+      const messagesWithProfiles = await Promise.all(
+        messagesData.map(async (message) => {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('display_name, avatar_url')
+            .eq('id', message.sender_id)
+            .single();
+
+          return {
+            ...message,
+            profiles: profile || { display_name: 'Unknown User', avatar_url: null }
+          };
+        })
+      );
+
+      setMessages(messagesWithProfiles as Message[]);
     }
   };
 
@@ -58,22 +68,19 @@ export const useMessages = (chatId: string) => {
           filter: `chat_id=eq.${chatId}`
         },
         async (payload) => {
-          // Fetch the complete message with profile data
-          const { data: newMessage } = await supabase
-            .from('messages')
-            .select(`
-              *,
-              profiles!inner (
-                display_name,
-                avatar_url
-              )
-            `)
-            .eq('id', payload.new.id)
+          // Fetch the profile data for the new message
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('display_name, avatar_url')
+            .eq('id', payload.new.sender_id)
             .single();
 
-          if (newMessage) {
-            setMessages(prev => [...prev, newMessage as Message]);
-          }
+          const newMessage = {
+            ...payload.new,
+            profiles: profile || { display_name: 'Unknown User', avatar_url: null }
+          } as Message;
+
+          setMessages(prev => [...prev, newMessage]);
         }
       )
       .subscribe();

@@ -1,12 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
+import { Search, MessageSquare, Settings, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { User, Search, MessageSquare } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+
+interface Profile {
+  id: string;
+  display_name: string;
+  status: string;
+  avatar_url?: string;
+}
+
+interface Chat {
+  id: string;
+  name?: string;
+  is_group: boolean;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  otherParticipant?: Profile;
+}
 
 interface SidebarProps {
   selectedChat: string | null;
@@ -14,149 +29,115 @@ interface SidebarProps {
   onShowProfile: () => void;
 }
 
-interface Profile {
-  id: string;
-  display_name: string;
-  avatar_url?: string;
-  status: string;
-}
-
-interface Chat {
-  id: string;
-  name?: string;
-  is_group: boolean;
-  participant: Profile;
-  lastMessage?: {
-    content: string;
-    timestamp: string;
-  };
-  unreadCount: number;
-}
-
 const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowProfile }) => {
-  const [searchTerm, setSearchTerm] = useState('');
   const [chats, setChats] = useState<Chat[]>([]);
-  const [allUsers, setAllUsers] = useState<Profile[]>([]);
-  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<Profile[]>([]);
+  const [showSearch, setShowSearch] = useState(false);
   const { user, signOut } = useAuth();
 
   useEffect(() => {
     if (user) {
-      fetchCurrentUserProfile();
-      fetchAllUsers();
       fetchChats();
     }
   }, [user]);
-
-  const fetchCurrentUserProfile = async () => {
-    if (!user) return;
-    
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    
-    if (data) {
-      setCurrentUserProfile(data);
-    }
-  };
-
-  const fetchAllUsers = async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .neq('id', user?.id);
-    
-    if (data) {
-      setAllUsers(data);
-    }
-  };
 
   const fetchChats = async () => {
     if (!user) return;
 
     const { data: chatParticipants } = await supabase
       .from('chat_participants')
-      .select(`
-        chat_id,
-        chats (
-          id,
-          name,
-          is_group,
-          created_at
-        )
-      `)
+      .select('chat_id')
       .eq('user_id', user.id);
 
     if (chatParticipants) {
-      const chatList: Chat[] = [];
+      const chatIds = chatParticipants.map(cp => cp.chat_id);
       
-      for (const participant of chatParticipants) {
-        const chat = participant.chats;
-        
-        if (chat && !chat.is_group) {
-          // For one-on-one chats, get the other participant
-          const { data: otherParticipantData } = await supabase
-            .from('chat_participants')
-            .select(`
-              profiles (
-                id,
-                display_name,
-                avatar_url,
-                status
-              )
-            `)
-            .eq('chat_id', chat.id)
-            .neq('user_id', user.id)
-            .single();
+      const { data: chatsData } = await supabase
+        .from('chats')
+        .select('*')
+        .in('id', chatIds)
+        .order('updated_at', { ascending: false });
 
-          if (otherParticipantData?.profiles) {
-            chatList.push({
+      if (chatsData) {
+        const chatsWithDetails = await Promise.all(
+          chatsData.map(async (chat) => {
+            let chatInfo: Chat = {
               id: chat.id,
               name: chat.name,
-              is_group: chat.is_group,
-              participant: otherParticipantData.profiles,
-              unreadCount: 0 // TODO: Implement unread count
-            });
-          }
-        }
+              is_group: chat.is_group
+            };
+
+            if (!chat.is_group) {
+              // Get other participant
+              const { data: otherParticipantData } = await supabase
+                .from('chat_participants')
+                .select('user_id')
+                .eq('chat_id', chat.id)
+                .neq('user_id', user.id)
+                .single();
+
+              if (otherParticipantData) {
+                const { data: profileData } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .eq('id', otherParticipantData.user_id)
+                  .single();
+
+                if (profileData) {
+                  chatInfo.otherParticipant = profileData;
+                }
+              }
+            }
+
+            return chatInfo;
+          })
+        );
+
+        setChats(chatsWithDetails);
       }
-      
-      setChats(chatList);
     }
   };
 
-  const createChat = async (otherUserId: string) => {
+  const searchUsers = async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', user?.id)
+      .ilike('display_name', `%${searchTerm}%`)
+      .limit(10);
+
+    setSearchResults(data || []);
+  };
+
+  const createChatWithUser = async (otherUserId: string) => {
     if (!user) return;
 
     // Check if chat already exists
-    const { data: existingChats } = await supabase
+    const { data: existingParticipants } = await supabase
       .from('chat_participants')
-      .select(`
-        chat_id,
-        chats (
-          id,
-          is_group
-        )
-      `)
+      .select('chat_id')
       .eq('user_id', user.id);
 
-    if (existingChats) {
-      for (const participant of existingChats) {
-        const chat = participant.chats;
-        if (chat && !chat.is_group) {
-          const { data: otherParticipant } = await supabase
-            .from('chat_participants')
-            .select('user_id')
-            .eq('chat_id', chat.id)
-            .neq('user_id', user.id)
-            .single();
+    if (existingParticipants) {
+      for (const participant of existingParticipants) {
+        const { data: otherParticipant } = await supabase
+          .from('chat_participants')
+          .select('user_id')
+          .eq('chat_id', participant.chat_id)
+          .eq('user_id', otherUserId)
+          .single();
 
-          if (otherParticipant?.user_id === otherUserId) {
-            onSelectChat(chat.id);
-            return;
-          }
+        if (otherParticipant) {
+          onSelectChat(participant.chat_id);
+          setShowSearch(false);
+          setSearchTerm('');
+          return;
         }
       }
     }
@@ -181,7 +162,9 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
         ]);
 
       onSelectChat(newChat.id);
-      fetchChats(); // Refresh chat list
+      setShowSearch(false);
+      setSearchTerm('');
+      fetchChats();
     }
   };
 
@@ -189,143 +172,157 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
     await signOut();
   };
 
-  const filteredUsers = allUsers.filter(user =>
-    user.display_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredChats = chats.filter(chat =>
-    chat.participant.display_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <>
+    <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="bg-gray-100 p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <Avatar className="cursor-pointer" onClick={onShowProfile}>
-              <AvatarImage src={currentUserProfile?.avatar_url || ''} />
-              <AvatarFallback>
-                {currentUserProfile?.display_name?.split(' ').map(n => n[0]).join('') || 'ME'}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <h2 className="font-semibold text-gray-800">
-                {currentUserProfile?.display_name || 'My Profile'}
-              </h2>
-              <p className="text-sm text-gray-600">{currentUserProfile?.status || 'Available'}</p>
-            </div>
+          <h1 className="text-xl font-semibold text-gray-800">Chats</h1>
+          <div className="flex space-x-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSearch(!showSearch)}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onShowProfile}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-gray-600 hover:text-gray-800"
-          >
-            Logout
-          </Button>
         </div>
-        
+
         {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search chats and users..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-white"
-          />
-        </div>
+        {showSearch && (
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search users..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  searchUsers(e.target.value);
+                }}
+                className="pl-10"
+              />
+            </div>
+            
+            {searchResults.length > 0 && (
+              <div className="bg-gray-50 rounded-lg max-h-40 overflow-y-auto">
+                {searchResults.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center p-3 hover:bg-gray-100 cursor-pointer"
+                    onClick={() => createChatWithUser(user.id)}
+                  >
+                    <Avatar className="w-8 h-8 mr-3">
+                      <AvatarImage src={user.avatar_url || ''} />
+                      <AvatarFallback>
+                        {user.display_name.split(' ').map(n => n[0]).join('')}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium text-sm">{user.display_name}</p>
+                      <p className="text-xs text-gray-500">{user.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
-        {/* Existing Chats */}
-        {filteredChats.map((chat) => (
-          <div
-            key={chat.id}
-            onClick={() => onSelectChat(chat.id)}
-            className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-              selectedChat === chat.id ? 'bg-green-50 border-r-4 border-r-green-500' : ''
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <Avatar>
-                <AvatarImage src={chat.participant.avatar_url || ''} />
-                <AvatarFallback>
-                  {chat.participant.display_name?.split(' ').map(n => n[0]).join('') || '?'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-semibold text-gray-800 truncate">
-                    {chat.participant.display_name}
-                  </h3>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600 truncate">
-                    {chat.lastMessage?.content || 'Start a conversation'}
-                  </p>
-                  <div className="flex items-center space-x-2">
-                    <Badge variant="outline" className="text-xs">
-                      {chat.participant.status}
-                    </Badge>
-                    {chat.unreadCount > 0 && (
-                      <Badge className="bg-green-500 text-white text-xs">
-                        {chat.unreadCount}
-                      </Badge>
+        {chats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+            <MessageSquare className="h-8 w-8 mb-2" />
+            <p className="text-sm">No chats yet</p>
+            <p className="text-xs">Search for users to start chatting</p>
+          </div>
+        ) : (
+          <div className="space-y-1 p-2">
+            {chats.map((chat) => {
+              const displayName = chat.is_group ? chat.name : chat.otherParticipant?.display_name || 'Unknown User';
+              const avatarUrl = chat.is_group ? '' : chat.otherParticipant?.avatar_url;
+              
+              return (
+                <div
+                  key={chat.id}
+                  className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
+                    selectedChat === chat.id ? 'bg-green-100' : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => onSelectChat(chat.id)}
+                >
+                  <div className="relative">
+                    <Avatar className="w-12 h-12">
+                      <AvatarImage src={avatarUrl || ''} />
+                      <AvatarFallback>
+                        {chat.is_group ? (
+                          <Users className="h-6 w-6" />
+                        ) : (
+                          displayName.split(' ').map(n => n[0]).join('')
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    {!chat.is_group && chat.otherParticipant?.status === 'Available' && (
+                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                    )}
+                  </div>
+                  
+                  <div className="ml-3 flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-gray-900 truncate">
+                        {displayName}
+                      </p>
+                      {chat.lastMessageTime && (
+                        <p className="text-xs text-gray-500">
+                          {new Date(chat.lastMessageTime).toLocaleTimeString('en-US', { 
+                            hour: 'numeric', 
+                            minute: '2-digit',
+                            hour12: true 
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    {chat.lastMessage && (
+                      <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
                     )}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Available Users to Chat With */}
-        {searchTerm && (
-          <>
-            <div className="p-3 bg-gray-50 border-b">
-              <h4 className="text-sm font-medium text-gray-700">Start new chat</h4>
-            </div>
-            {filteredUsers.map((profile) => (
-              <div
-                key={profile.id}
-                onClick={() => createChat(profile.id)}
-                className="p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center space-x-3">
-                  <Avatar>
-                    <AvatarImage src={profile.avatar_url || ''} />
-                    <AvatarFallback>
-                      {profile.display_name?.split(' ').map(n => n[0]).join('') || '?'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-800 truncate">
-                      {profile.display_name}
-                    </h3>
-                    <div className="flex items-center">
-                      <Badge variant="outline" className="text-xs">
-                        {profile.status}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        {filteredChats.length === 0 && !searchTerm && (
-          <div className="p-8 text-center">
-            <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No chats yet</p>
-            <p className="text-sm text-gray-400 mt-1">Search for users to start chatting</p>
+              );
+            })}
           </div>
         )}
       </div>
-    </>
+
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={user?.user_metadata?.avatar_url || ''} />
+              <AvatarFallback>
+                {user?.user_metadata?.display_name?.split(' ').map((n: string) => n[0]).join('') || 'U'}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-medium text-sm">{user?.user_metadata?.display_name || user?.email}</p>
+              <p className="text-xs text-green-600">Available</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
+            Logout
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 };
 
