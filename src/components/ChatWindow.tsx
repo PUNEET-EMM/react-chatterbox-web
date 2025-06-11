@@ -53,7 +53,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     : chatInfo.otherParticipant?.status || 'Offline';
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50">
+    <div className="flex-1 flex flex-col bg-gray-50 max-h-screen overflow-hidden">
       <ChatHeader 
         displayName={displayName}
         avatarUrl={avatarUrl}
