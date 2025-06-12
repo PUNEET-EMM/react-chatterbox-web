@@ -9,6 +9,59 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      calls: {
+        Row: {
+          answer: Json | null
+          call_type: string
+          callee_id: string
+          caller_id: string
+          chat_id: string
+          created_at: string | null
+          ended_at: string | null
+          ice_candidates: Json | null
+          id: string
+          offer: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          answer?: Json | null
+          call_type: string
+          callee_id: string
+          caller_id: string
+          chat_id: string
+          created_at?: string | null
+          ended_at?: string | null
+          ice_candidates?: Json | null
+          id?: string
+          offer?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          answer?: Json | null
+          call_type?: string
+          callee_id?: string
+          caller_id?: string
+          chat_id?: string
+          created_at?: string | null
+          ended_at?: string | null
+          ice_candidates?: Json | null
+          id?: string
+          offer?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calls_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_participants: {
         Row: {
           chat_id: string

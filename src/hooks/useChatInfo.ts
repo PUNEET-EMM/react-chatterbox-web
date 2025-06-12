@@ -7,6 +7,7 @@ interface ChatInfo {
   name?: string;
   is_group: boolean;
   otherParticipant?: {
+    id: string;
     display_name: string;
     avatar_url?: string;
     status: string;
@@ -55,7 +56,12 @@ export const useChatInfo = (chatId: string, userId?: string) => {
             .single();
 
           if (profileData) {
-            chatData.otherParticipant = profileData;
+            chatData.otherParticipant = {
+              id: participantData.user_id,
+              display_name: profileData.display_name,
+              avatar_url: profileData.avatar_url,
+              status: profileData.status
+            };
           }
         }
       }
