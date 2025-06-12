@@ -1,4 +1,3 @@
-
 import { useRef, useCallback, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -24,7 +23,6 @@ export const useWebRTC = ({ callId, isInitiator, onRemoteStream, onCallEnd }: Us
 
     pc.onicecandidate = async (event) => {
       if (event.candidate) {
-        // Add ICE candidate to database
         const { data: call } = await supabase
           .from('calls')
           .select('ice_candidates')
@@ -33,8 +31,8 @@ export const useWebRTC = ({ callId, isInitiator, onRemoteStream, onCallEnd }: Us
 
         if (call) {
           const candidates = Array.isArray(call.ice_candidates) ? call.ice_candidates : [];
-          candidates.push(event.candidate.toJSON());
-          
+          candidates.push(JSON.parse(JSON.stringify(event.candidate)));
+
           await supabase
             .from('calls')
             .update({ ice_candidates: candidates })
@@ -52,7 +50,7 @@ export const useWebRTC = ({ callId, isInitiator, onRemoteStream, onCallEnd }: Us
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      } else if (['disconnected', 'failed'].includes(pc.connectionState)) {
         setIsConnected(false);
         onCallEnd?.();
       }
@@ -87,11 +85,10 @@ export const useWebRTC = ({ callId, isInitiator, onRemoteStream, onCallEnd }: Us
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Save offer to database
     await supabase
       .from('calls')
       .update({ 
-        offer: offer.toJSON(),
+        offer: JSON.parse(JSON.stringify(offer)),
         status: 'ringing'
       })
       .eq('id', callId);
@@ -111,11 +108,10 @@ export const useWebRTC = ({ callId, isInitiator, onRemoteStream, onCallEnd }: Us
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    // Save answer to database
     await supabase
       .from('calls')
       .update({ 
-        answer: answer.toJSON(),
+        answer: JSON.parse(JSON.stringify(answer)),
         status: 'accepted'
       })
       .eq('id', callId);
