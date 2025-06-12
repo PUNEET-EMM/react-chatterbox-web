@@ -7,7 +7,7 @@ interface Message {
   sender_id: string;
   content: string;
   created_at: string;
-  message_type: 'text' | 'image';
+  message_type: 'text' | 'image' | 'audio';
   media_url?: string;
   profiles: {
     display_name: string;

@@ -23,6 +23,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     return await sendMessage(message, user.id);
   };
 
+  const handleSendAudio = async (audioUrl: string) => {
+    if (!user) return false;
+    return await sendMessage('Audio message', user.id, 'audio', audioUrl);
+  };
+
   const handleImageUpload = async (imageUrl: string) => {
     if (!user) return;
 
@@ -64,6 +69,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
       
       <MessageInput 
         onSendMessage={handleSendMessage}
+        onSendAudio={handleSendAudio}
         onShowImageUploader={() => setShowImageUploader(true)}
       />
 

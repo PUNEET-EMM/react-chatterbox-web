@@ -7,7 +7,7 @@ interface Message {
   sender_id: string;
   content: string;
   created_at: string;
-  message_type: 'text' | 'image';
+  message_type: 'text' | 'image' | 'audio';
   media_url?: string;
   profiles: {
     display_name: string;
@@ -88,7 +88,7 @@ export const useMessages = (chatId: string) => {
     return channel;
   };
 
-  const sendMessage = async (content: string, userId: string, messageType: 'text' | 'image' = 'text', mediaUrl?: string) => {
+  const sendMessage = async (content: string, userId: string, messageType: 'text' | 'image' | 'audio' = 'text', mediaUrl?: string) => {
     const { error } = await supabase
       .from('messages')
       .insert({

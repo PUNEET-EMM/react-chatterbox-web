@@ -2,13 +2,14 @@
 import React from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
+import AudioPlayer from './AudioPlayer';
 
 interface Message {
   id: string;
   senderId: string;
   content: string;
   timestamp: Date;
-  type: 'text' | 'image';
+  type: 'text' | 'image' | 'audio';
   mediaUrl?: string;
   senderName: string;
   senderAvatar: string;
@@ -49,7 +50,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
               : 'bg-white text-gray-800 rounded-tl-md border border-gray-200'
           }`}
         >
-          {message.type === 'image' ? (
+          {message.type === 'audio' ? (
+            <div className="space-y-2">
+              <AudioPlayer 
+                audioUrl={message.mediaUrl || message.content}
+                className="filter invert-0"
+              />
+            </div>
+          ) : message.type === 'image' ? (
             <div className="space-y-2">
               <img
                 src={message.mediaUrl || message.content}
