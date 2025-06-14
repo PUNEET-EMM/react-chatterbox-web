@@ -15,21 +15,37 @@ export const useSocketConnection = (userId: string | undefined, handlers: Socket
   const [isSocketConnected, setIsSocketConnected] = useState(false);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      console.log('No userId provided, skipping socket connection');
+      return;
+    }
+
+    console.log('Setting up socket connection for user:', userId);
 
     // Connect to WebSocket
     socketService.connect(userId);
     
-    // Check connection status periodically
+    // Check connection status immediately and periodically
     const checkConnection = () => {
-      setIsSocketConnected(socketService.isConnected());
+      const connected = socketService.isConnected();
+      setIsSocketConnected(connected);
+      console.log('Socket connection status:', connected);
     };
     
+    // Initial check
+    checkConnection();
+    
+    // Periodic checks
     const connectionInterval = setInterval(checkConnection, 2000);
 
     const handleConnected = () => {
       console.log('WebSocket connection confirmed');
       setIsSocketConnected(true);
+    };
+
+    const handleDisconnected = () => {
+      console.log('WebSocket disconnected');
+      setIsSocketConnected(false);
     };
 
     // Set up event listeners
@@ -39,6 +55,7 @@ export const useSocketConnection = (userId: string | undefined, handlers: Socket
     socketService.on('call-ended', handlers.onCallEnded);
     socketService.on('ice-candidate', handlers.onIceCandidate);
     socketService.on('connected', handleConnected);
+    socketService.on('disconnected', handleDisconnected);
 
     return () => {
       clearInterval(connectionInterval);
@@ -48,6 +65,7 @@ export const useSocketConnection = (userId: string | undefined, handlers: Socket
       socketService.off('call-ended', handlers.onCallEnded);
       socketService.off('ice-candidate', handlers.onIceCandidate);
       socketService.off('connected', handleConnected);
+      socketService.off('disconnected', handleDisconnected);
       socketService.disconnect();
     };
   }, [userId, handlers]);
@@ -55,6 +73,7 @@ export const useSocketConnection = (userId: string | undefined, handlers: Socket
   const emitSocketEvent = useCallback((event: string, data: any) => {
     if (socketService.isConnected()) {
       socketService.emit(event, data);
+      console.log('Socket event emitted:', event, data);
     } else {
       console.warn('Socket not connected, cannot emit event:', event);
     }

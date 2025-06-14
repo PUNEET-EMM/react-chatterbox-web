@@ -1,5 +1,5 @@
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocketConnection } from './useSocketConnection';
 import { useWebRTC } from './useWebRTC';
@@ -72,9 +72,30 @@ export const useAudioCall = () => {
     onIceCandidate: handleIceCandidate
   });
 
+  // Add debugging logs for connection status
+  useEffect(() => {
+    console.log('Auth status:', { 
+      isAuthenticated: !!user, 
+      userId: user?.id,
+      socketConnected: isSocketConnected 
+    });
+  }, [user, isSocketConnected]);
+
   const startCall = useCallback(async (receiverId: string) => {
-    if (!user || !isSocketConnected) {
-      console.error('Cannot start call: user not authenticated or socket not connected');
+    console.log('Starting call attempt...', {
+      user: !!user,
+      userId: user?.id,
+      isSocketConnected,
+      receiverId
+    });
+
+    if (!user) {
+      console.error('Cannot start call: user not authenticated');
+      return null;
+    }
+
+    if (!isSocketConnected) {
+      console.error('Cannot start call: socket not connected');
       return null;
     }
 
@@ -83,6 +104,7 @@ export const useAudioCall = () => {
       
       const callData = await createCallRecord(user.id, receiverId);
       setCurrentCall(callData);
+      console.log('Call record created:', callData);
 
       initializeWebRTC((candidate) => {
         emitSocketEvent('ice-candidate', {
@@ -93,6 +115,7 @@ export const useAudioCall = () => {
       });
 
       const offer = await webrtcStartCall();
+      console.log('WebRTC offer created:', offer);
 
       emitSocketEvent('call-user', {
         callId: callData.id,
@@ -101,6 +124,7 @@ export const useAudioCall = () => {
         offer
       });
 
+      console.log('Call invitation sent');
       return callData;
     } catch (error) {
       console.error('Error starting call:', error);
