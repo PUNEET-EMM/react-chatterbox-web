@@ -18,7 +18,6 @@ interface NotificationProps {
 }
 
 const Notification: React.FC<NotificationProps> = ({
-  id,
   type,
   title,
   message,
@@ -39,42 +38,44 @@ const Notification: React.FC<NotificationProps> = ({
   }, [type, autoClose, onClose]);
 
   return (
-    <div className="fixed top-4 right-4 bg-white rounded-lg shadow-lg border border-gray-200 p-4 w-80 z-50 animate-in slide-in-from-right">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center space-x-3 flex-1">
-          <Avatar className="h-10 w-10">
-            <AvatarImage src={avatar} />
-            <AvatarFallback>{title.charAt(0).toUpperCase()}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1">
-            <h4 className="font-medium text-gray-900">{title}</h4>
-            <p className="text-sm text-gray-600">{message}</p>
-          </div>
+    <div className="w-80 max-w-sm rounded-2xl border border-green-200 bg-white/95 dark:bg-[#232530] shadow-2xl shadow-green-200/10 p-4 transition-all duration-300 animate-fade-in">
+      <div className="flex items-center">
+        <Avatar className="h-11 w-11 border border-green-300 shadow-sm bg-gradient-to-br from-green-50 via-white to-transparent">
+          <AvatarImage src={avatar} />
+          <AvatarFallback>{title.charAt(0).toUpperCase()}</AvatarFallback>
+        </Avatar>
+        <div className="pl-3 flex-1">
+          <h4 className="font-semibold text-green-700 dark:text-green-300 leading-tight">
+            {title}
+          </h4>
+          <p className="text-sm text-gray-600 dark:text-gray-200 mt-0.5">
+            {message}
+          </p>
         </div>
         <Button
           variant="ghost"
-          size="sm"
+          size="icon"
           onClick={onClose}
-          className="h-6 w-6 p-0"
+          className="ml-1 text-gray-400 hover:text-red-400 rounded-full"
+          aria-label="Close notification"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
-      
       {type === 'call' && (
-        <div className="flex justify-center space-x-3 mt-4">
+        <div className="flex justify-center gap-3 pt-3">
           <Button
             onClick={onReject}
             variant="destructive"
             size="sm"
-            className="rounded-full"
+            className="rounded-full font-semibold"
           >
             <X className="h-4 w-4 mr-1" />
             Decline
           </Button>
           <Button
             onClick={onAccept}
-            className="bg-green-500 hover:bg-green-600 rounded-full"
+            className="bg-green-500 hover:bg-green-600 rounded-full font-semibold"
             size="sm"
           >
             {callType === 'video' ? (
