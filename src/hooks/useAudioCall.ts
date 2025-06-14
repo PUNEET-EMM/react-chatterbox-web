@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,60 +24,96 @@ export const useAudioCall = () => {
   const [pendingOffer, setPendingOffer] = useState<RTCSessionDescriptionInit | null>(null);
   const webrtcRef = useRef<WebRTCService | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
 
   useEffect(() => {
     if (user) {
+      // Connect to WebSocket
       socketService.connect(user.id);
       
+      // Check connection status periodically
+      const checkConnection = () => {
+        setIsSocketConnected(socketService.isConnected());
+      };
+      
+      const connectionInterval = setInterval(checkConnection, 2000);
+      
       // Listen for incoming calls
-      socketService.on('incoming-call', (call: Call, offer: RTCSessionDescriptionInit) => {
+      const handleIncomingCall = (call: Call, offer: RTCSessionDescriptionInit) => {
         console.log('Incoming call received:', call);
         setIncomingCall(call);
         setPendingOffer(offer);
-      });
+      };
 
-      // Listen for call accepted
-      socketService.on('call-accepted', async (data: { callId: string, answer: RTCSessionDescriptionInit }) => {
+      const handleCallAccepted = async (data: { callId: string, answer: RTCSessionDescriptionInit }) => {
         console.log('Call accepted:', data);
         if (webrtcRef.current) {
-          await webrtcRef.current.handleAnswer(data.answer);
-          setIsCallActive(true);
-          setIsConnecting(false);
+          try {
+            await webrtcRef.current.handleAnswer(data.answer);
+            setIsCallActive(true);
+            setIsConnecting(false);
+          } catch (error) {
+            console.error('Error handling call answer:', error);
+            setIsConnecting(false);
+          }
         }
-      });
+      };
 
-      // Listen for call rejected
-      socketService.on('call-rejected', () => {
+      const handleCallRejected = () => {
         console.log('Call rejected');
         setCurrentCall(null);
         setIsConnecting(false);
         if (webrtcRef.current) {
           webrtcRef.current.endCall();
         }
-      });
+      };
 
-      // Listen for call ended
-      socketService.on('call-ended', () => {
+      const handleCallEnded = () => {
         console.log('Call ended by other party');
         endCall();
-      });
+      };
 
-      // Listen for ICE candidates
-      socketService.on('ice-candidate', async (candidate: RTCIceCandidateInit) => {
+      const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
         console.log('Received ICE candidate:', candidate);
         if (webrtcRef.current) {
-          await webrtcRef.current.addIceCandidate(candidate);
+          try {
+            await webrtcRef.current.addIceCandidate(candidate);
+          } catch (error) {
+            console.error('Error adding ICE candidate:', error);
+          }
         }
-      });
+      };
+
+      const handleConnected = () => {
+        console.log('WebSocket connection confirmed');
+        setIsSocketConnected(true);
+      };
+
+      socketService.on('incoming-call', handleIncomingCall);
+      socketService.on('call-accepted', handleCallAccepted);
+      socketService.on('call-rejected', handleCallRejected);
+      socketService.on('call-ended', handleCallEnded);
+      socketService.on('ice-candidate', handleIceCandidate);
+      socketService.on('connected', handleConnected);
 
       return () => {
+        clearInterval(connectionInterval);
+        socketService.off('incoming-call', handleIncomingCall);
+        socketService.off('call-accepted', handleCallAccepted);
+        socketService.off('call-rejected', handleCallRejected);
+        socketService.off('call-ended', handleCallEnded);
+        socketService.off('ice-candidate', handleIceCandidate);
+        socketService.off('connected', handleConnected);
         socketService.disconnect();
       };
     }
   }, [user]);
 
   const startCall = useCallback(async (receiverId: string) => {
-    if (!user) return null;
+    if (!user || !socketService.isConnected()) {
+      console.error('Cannot start call: user not authenticated or socket not connected');
+      return null;
+    }
 
     try {
       setIsConnecting(true);
@@ -243,6 +278,7 @@ export const useAudioCall = () => {
     isCallActive,
     incomingCall,
     isConnecting,
+    isSocketConnected,
     startCall,
     answerCall,
     rejectCall,

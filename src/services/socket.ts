@@ -1,66 +1,91 @@
 
-import { io, Socket } from 'socket.io-client';
-
 class SocketService {
   private socket: WebSocket | null = null;
   private eventHandlers: Map<string, ((...args: any[]) => void)[]> = new Map();
   private userId: string | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
 
   connect(userId: string) {
     console.log('Connecting to WebSocket server for user:', userId);
     this.userId = userId;
-    
-    // Connect to our Supabase Edge Function WebSocket
-    const wsUrl = 'wss://eqyznjynjylhgfualvmx.supabase.co/functions/v1/socket-server';
-    this.socket = new WebSocket(wsUrl);
+    this.reconnectAttempts = 0;
+    this.connectWebSocket();
+  }
 
-    this.socket.onopen = () => {
-      console.log('WebSocket connected successfully');
-      // Send user identification
-      this.emit('connect', { userId });
-    };
+  private connectWebSocket() {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      return;
+    }
 
-    this.socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Received WebSocket message:', data);
+    try {
+      // Connect to our Supabase Edge Function WebSocket
+      const wsUrl = 'wss://eqyznjynjylhgfualvmx.supabase.co/functions/v1/socket-server';
+      this.socket = new WebSocket(wsUrl);
+
+      this.socket.onopen = () => {
+        console.log('WebSocket connected successfully');
+        this.reconnectAttempts = 0;
         
-        const handlers = this.eventHandlers.get(data.type) || [];
-        handlers.forEach(handler => {
-          if (data.type === 'incoming-call') {
-            handler(data.call, data.offer);
-          } else if (data.type === 'call-accepted') {
-            handler(data);
-          } else if (data.type === 'ice-candidate') {
-            handler(data.candidate);
-          } else {
-            handler(data);
-          }
-        });
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
+        // Send user identification
+        if (this.userId) {
+          this.emit('connect', { userId: this.userId });
+        }
+      };
 
-    this.socket.onclose = () => {
-      console.log('WebSocket disconnected');
-      this.socket = null;
-    };
+      this.socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received WebSocket message:', data);
+          
+          const handlers = this.eventHandlers.get(data.type) || [];
+          handlers.forEach(handler => {
+            if (data.type === 'incoming-call') {
+              handler(data.call, data.offer);
+            } else if (data.type === 'call-accepted') {
+              handler(data);
+            } else if (data.type === 'ice-candidate') {
+              handler(data.candidate);
+            } else {
+              handler(data);
+            }
+          });
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
 
-    this.socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
+      this.socket.onclose = (event) => {
+        console.log('WebSocket disconnected', event.code, event.reason);
+        this.socket = null;
+        
+        // Attempt to reconnect if not manually disconnected
+        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+          setTimeout(() => {
+            this.reconnectAttempts++;
+            console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            this.connectWebSocket();
+          }, this.reconnectDelay * this.reconnectAttempts);
+        }
+      };
 
-    return this.socket;
+      this.socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    } catch (error) {
+      console.error('Failed to create WebSocket connection:', error);
+    }
   }
 
   disconnect() {
     if (this.socket) {
-      this.socket.close();
+      this.socket.close(1000, 'Manual disconnect');
       this.socket = null;
     }
     this.eventHandlers.clear();
     this.userId = null;
+    this.reconnectAttempts = 0;
   }
 
   emit(event: string, data: any) {
@@ -70,6 +95,11 @@ class SocketService {
       console.log('Emitting:', event, data);
     } else {
       console.warn('WebSocket not connected, cannot emit:', event);
+      
+      // Try to reconnect if we have a userId
+      if (this.userId && this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.connectWebSocket();
+      }
     }
   }
 
@@ -92,6 +122,10 @@ class SocketService {
       this.eventHandlers.delete(event);
     }
     console.log('Removing listener for:', event);
+  }
+
+  isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
   }
 }
 
