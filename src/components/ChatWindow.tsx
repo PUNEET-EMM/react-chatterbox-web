@@ -3,14 +3,11 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatInfo } from '@/hooks/useChatInfo';
 import { useMessages } from '@/hooks/useMessages';
-import { useSimpleCalls } from '@/hooks/useSimpleCalls';
 import { useNotifications } from '@/hooks/useNotifications';
 import ChatHeader from './ChatHeader';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ImageUploader from './ImageUploader';
-import SimpleCallWindow from './SimpleCallWindow';
-import { useToast } from '@/hooks/use-toast';
 
 interface ChatWindowProps {
   chatId: string;
@@ -21,9 +18,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   const { user } = useAuth();
   const { chatInfo } = useChatInfo(chatId, user?.id);
   const { messages, sendMessage } = useMessages(chatId, user?.id);
-  const { activeCall, initiateCall, endCall } = useSimpleCalls();
   const { addNotification } = useNotifications();
-  const { toast } = useToast();
 
   const handleSendMessage = async (message: string) => {
     if (!user) return false;
@@ -57,32 +52,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     }
   };
 
-  const handleAudioCall = async () => {
-    if (!user || !chatInfo?.otherParticipant) return;
-    
-    const call = initiateCall(chatInfo.otherParticipant.display_name, 'audio');
-    if (!call) {
-      toast({
-        title: "Call Failed",
-        description: "Unable to initiate call. Please try again.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleVideoCall = async () => {
-    if (!user || !chatInfo?.otherParticipant) return;
-    
-    const call = initiateCall(chatInfo.otherParticipant.display_name, 'video');
-    if (!call) {
-      toast({
-        title: "Call Failed",
-        description: "Unable to initiate call. Please try again.",
-        variant: "destructive"
-      });
-    }
-  };
-
   if (!chatInfo) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -104,42 +73,28 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     : chatInfo.otherParticipant?.status || 'Offline';
 
   return (
-    <>
-      <div className="flex-1 flex flex-col bg-gray-50 max-h-screen overflow-hidden">
-        <ChatHeader 
-          displayName={displayName}
-          avatarUrl={avatarUrl}
-          status={status}
-          onAudioCall={!chatInfo.is_group ? handleAudioCall : undefined}
-          onVideoCall={!chatInfo.is_group ? handleVideoCall : undefined}
-        />
-        
-        <MessageList messages={messages} />
-        
-        <MessageInput 
-          onSendMessage={handleSendMessage}
-          onSendAudio={handleSendAudio}
-          onShowImageUploader={() => setShowImageUploader(true)}
-        />
+    <div className="flex-1 flex flex-col bg-gray-50 max-h-screen overflow-hidden">
+      <ChatHeader 
+        displayName={displayName}
+        avatarUrl={avatarUrl}
+        status={status}
+      />
+      
+      <MessageList messages={messages} />
+      
+      <MessageInput 
+        onSendMessage={handleSendMessage}
+        onSendAudio={handleSendAudio}
+        onShowImageUploader={() => setShowImageUploader(true)}
+      />
 
-        {showImageUploader && (
-          <ImageUploader
-            onUpload={handleImageUpload}
-            onClose={() => setShowImageUploader(false)}
-          />
-        )}
-      </div>
-
-      {activeCall && (
-        <SimpleCallWindow
-          callType={activeCall.callType}
-          callerName={activeCall.callerName}
-          calleeName={activeCall.calleeName}
-          isInitiator={activeCall.isInitiator}
-          onEndCall={endCall}
+      {showImageUploader && (
+        <ImageUploader
+          onUpload={handleImageUpload}
+          onClose={() => setShowImageUploader(false)}
         />
       )}
-    </>
+    </div>
   );
 };
 

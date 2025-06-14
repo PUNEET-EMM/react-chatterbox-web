@@ -3,13 +3,10 @@ import { useState, useCallback } from 'react';
 
 export interface NotificationData {
   id: string;
-  type: 'call' | 'message';
+  type: 'message';
   title: string;
   message: string;
   avatar?: string;
-  onAccept?: () => void;
-  onReject?: () => void;
-  callType?: 'audio' | 'video';
   autoClose?: number;
 }
 
