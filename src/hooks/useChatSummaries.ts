@@ -79,13 +79,13 @@ export const useChatSummaries = (userId?: string) => {
           chatSummary.lastMessageTime = lastMessageData.created_at;
           chatSummary.lastMessageSenderId = lastMessageData.sender_id;
 
-          // Count unread messages (messages after user's last seen - for now, just count messages from others)
+          // Count unread messages from other users in the last 24 hours
           const { count } = await supabase
             .from('messages')
             .select('*', { count: 'exact', head: true })
             .eq('chat_id', chat.id)
             .neq('sender_id', userId)
-            .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // Last 24 hours
+            .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
           chatSummary.unreadCount = count || 0;
         }
@@ -134,9 +134,27 @@ export const useChatSummaries = (userId?: string) => {
           schema: 'public',
           table: 'messages'
         },
-        () => {
-          // Refetch summaries when any message changes
-          fetchChatSummaries();
+        (payload) => {
+          // Only increment unread count for new messages from other users
+          if (payload.eventType === 'INSERT' && payload.new.sender_id !== userId) {
+            setChatSummaries(prev => 
+              prev.map(chat => 
+                chat.id === payload.new.chat_id 
+                  ? { 
+                      ...chat, 
+                      unreadCount: chat.unreadCount + 1,
+                      lastMessage: payload.new.message_type === 'text' 
+                        ? payload.new.content 
+                        : payload.new.message_type === 'image' 
+                          ? '📷 Image' 
+                          : '🎵 Audio',
+                      lastMessageTime: payload.new.created_at,
+                      lastMessageSenderId: payload.new.sender_id
+                    }
+                  : chat
+              )
+            );
+          }
         }
       )
       .subscribe();
@@ -145,6 +163,7 @@ export const useChatSummaries = (userId?: string) => {
   };
 
   const markChatAsRead = (chatId: string) => {
+    // Immediately clear the unread count for the selected chat
     setChatSummaries(prev => 
       prev.map(chat => 
         chat.id === chatId 
