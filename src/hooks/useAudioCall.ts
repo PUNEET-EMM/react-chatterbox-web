@@ -131,21 +131,29 @@ export const useAudioCall = () => {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      // Prepare call data - ensure chat_id is provided or use a default
+      const callData = {
+        caller_id: user?.id!,
+        callee_id: calleeId,
+        chat_id: chatId || `direct_${user?.id}_${calleeId}`, // Generate a chat_id if not provided
+        offer: toJson(offer),
+        call_type: 'audio',
+        status: 'calling' as const
+      };
+
+      console.log('Inserting call with data:', callData);
+
       // Insert call into database
       const { data: newCall, error } = await supabase
         .from('calls')
-        .insert({
-          caller_id: user?.id!,
-          callee_id: calleeId,
-          chat_id: chatId,
-          offer: toJson(offer),
-          call_type: 'audio',
-          status: 'calling'
-        })
+        .insert(callData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database error:', error);
+        throw error;
+      }
 
       setCurrentCall(newCall as Call);
       setIsInCall(true);
