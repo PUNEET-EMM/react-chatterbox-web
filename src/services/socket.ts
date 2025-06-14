@@ -7,49 +7,49 @@ class SocketService {
   private reconnectDelay = 1000;
   private pingInterval: number | null = null;
   private connectionTimeout: number | null = null;
+  private reconnectTimeout: number | null = null;
+  private isManualDisconnect = false;
 
   connect(userId: string) {
     console.log('Connecting to WebSocket server for user:', userId);
     this.userId = userId;
     this.reconnectAttempts = 0;
+    this.isManualDisconnect = false;
     this.connectWebSocket();
   }
 
   private connectWebSocket() {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
       return;
     }
 
-    // Clear any existing connection timeout
-    if (this.connectionTimeout) {
-      clearTimeout(this.connectionTimeout);
-    }
+    // Clear any existing timeouts
+    this.clearTimeouts();
 
     try {
       // Connect to our Supabase Edge Function WebSocket
       const wsUrl = 'wss://eqyznjynjylhgfualvmx.supabase.co/functions/v1/socket-server';
       console.log('Attempting WebSocket connection to:', wsUrl);
+      
       this.socket = new WebSocket(wsUrl);
 
-      // Set connection timeout
+      // Set connection timeout (reduced to 5 seconds for faster feedback)
       this.connectionTimeout = window.setTimeout(() => {
         if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
           console.log('WebSocket connection timeout');
           this.socket.close();
         }
-      }, 10000); // 10 second timeout
+      }, 5000);
 
       this.socket.onopen = () => {
         console.log('WebSocket connected successfully');
         this.reconnectAttempts = 0;
         
         // Clear connection timeout
-        if (this.connectionTimeout) {
-          clearTimeout(this.connectionTimeout);
-          this.connectionTimeout = null;
-        }
+        this.clearTimeouts();
         
-        // Send user identification
+        // Send user identification immediately
         if (this.userId) {
           this.emit('connect', { userId: this.userId });
         }
@@ -73,8 +73,19 @@ class SocketService {
             return;
           }
 
+          if (data.type === 'connected') {
+            console.log('User connection confirmed:', data.userId);
+            return;
+          }
+
           if (data.type === 'pong') {
             console.log('Received pong from server');
+            return;
+          }
+
+          if (data.type === 'ping') {
+            console.log('Received ping from server, sending pong');
+            this.emit('pong', {});
             return;
           }
           
@@ -96,54 +107,60 @@ class SocketService {
       };
 
       this.socket.onclose = (event) => {
-        console.log('WebSocket disconnected', event.code, event.reason);
-        this.socket = null;
+        console.log('WebSocket disconnected', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
         
-        // Clear intervals and timeouts
-        this.stopPingInterval();
-        if (this.connectionTimeout) {
-          clearTimeout(this.connectionTimeout);
-          this.connectionTimeout = null;
-        }
+        this.socket = null;
+        this.clearTimeouts();
         
         // Trigger disconnected event handlers
         const handlers = this.eventHandlers.get('disconnected') || [];
         handlers.forEach(handler => handler());
         
-        // Attempt to reconnect if not manually disconnected
-        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-          setTimeout(() => {
+        // Attempt to reconnect if not manually disconnected and within retry limits
+        if (!this.isManualDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+          const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts); // Exponential backoff
+          this.reconnectTimeout = window.setTimeout(() => {
             this.reconnectAttempts++;
             console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
             this.connectWebSocket();
-          }, this.reconnectDelay * this.reconnectAttempts);
+          }, delay);
+        } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          console.error('Max reconnection attempts reached');
         }
       };
 
       this.socket.onerror = (error) => {
         console.error('WebSocket error:', error);
-        
-        // Clear connection timeout on error
-        if (this.connectionTimeout) {
-          clearTimeout(this.connectionTimeout);
-          this.connectionTimeout = null;
-        }
+        this.clearTimeouts();
       };
     } catch (error) {
       console.error('Failed to create WebSocket connection:', error);
+      this.clearTimeouts();
     }
   }
 
   private startPingInterval() {
-    // Send ping every 30 seconds to keep connection alive
+    // Send ping every 25 seconds to keep connection alive
     this.pingInterval = window.setInterval(() => {
       if (this.isConnected()) {
         this.emit('ping', {});
       }
-    }, 30000);
+    }, 25000);
   }
 
-  private stopPingInterval() {
+  private clearTimeouts() {
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout);
+      this.connectionTimeout = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
@@ -151,12 +168,9 @@ class SocketService {
   }
 
   disconnect() {
-    this.stopPingInterval();
-    
-    if (this.connectionTimeout) {
-      clearTimeout(this.connectionTimeout);
-      this.connectionTimeout = null;
-    }
+    console.log('Manually disconnecting WebSocket');
+    this.isManualDisconnect = true;
+    this.clearTimeouts();
 
     if (this.socket) {
       this.socket.close(1000, 'Manual disconnect');
@@ -175,8 +189,9 @@ class SocketService {
     } else {
       console.warn('WebSocket not connected, cannot emit:', event);
       
-      // Try to reconnect if we have a userId
-      if (this.userId && this.reconnectAttempts < this.maxReconnectAttempts) {
+      // Try to reconnect if we have a userId and haven't exceeded retry limits
+      if (this.userId && this.reconnectAttempts < this.maxReconnectAttempts && !this.isManualDisconnect) {
+        console.log('Attempting to reconnect due to emit failure');
         this.connectWebSocket();
       }
     }
