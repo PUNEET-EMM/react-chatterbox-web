@@ -20,7 +20,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   const [showImageUploader, setShowImageUploader] = useState(false);
   const { user } = useAuth();
   const { chatInfo } = useChatInfo(chatId, user?.id);
-  const { messages, sendMessage } = useMessages(chatId);
+  const { messages, sendMessage } = useMessages(chatId, user?.id);
   const { activeCall, initiateCall, endCall } = useSimpleCalls();
   const { addNotification } = useNotifications();
   const { toast } = useToast();

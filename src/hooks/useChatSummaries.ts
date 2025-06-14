@@ -79,13 +79,17 @@ export const useChatSummaries = (userId?: string) => {
           chatSummary.lastMessageTime = lastMessageData.created_at;
           chatSummary.lastMessageSenderId = lastMessageData.sender_id;
 
-          // Count unread messages from other users in the last 24 hours
+          // Count unread messages - messages not in message_reads table and not sent by current user
           const { count } = await supabase
             .from('messages')
-            .select('*', { count: 'exact', head: true })
+            .select('id', { count: 'exact', head: true })
             .eq('chat_id', chat.id)
             .neq('sender_id', userId)
-            .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+            .not('id', 'in', `(
+              SELECT message_id 
+              FROM message_reads 
+              WHERE user_id = '${userId}' AND chat_id = '${chat.id}'
+            )`);
 
           chatSummary.unreadCount = count || 0;
         }
@@ -162,7 +166,34 @@ export const useChatSummaries = (userId?: string) => {
     return channel;
   };
 
-  const markChatAsRead = (chatId: string) => {
+  const markChatAsRead = async (chatId: string) => {
+    if (!userId) return;
+
+    // Get all unread messages in this chat
+    const { data: unreadMessages } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('chat_id', chatId)
+      .neq('sender_id', userId)
+      .not('id', 'in', `(
+        SELECT message_id 
+        FROM message_reads 
+        WHERE user_id = '${userId}' AND chat_id = '${chatId}'
+      )`);
+
+    if (unreadMessages && unreadMessages.length > 0) {
+      // Mark all unread messages as read
+      const readRecords = unreadMessages.map(message => ({
+        user_id: userId,
+        message_id: message.id,
+        chat_id: chatId
+      }));
+
+      await supabase
+        .from('message_reads')
+        .insert(readRecords);
+    }
+
     // Immediately clear the unread count for the selected chat
     setChatSummaries(prev => 
       prev.map(chat => 

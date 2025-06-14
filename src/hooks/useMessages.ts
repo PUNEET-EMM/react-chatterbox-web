@@ -15,7 +15,7 @@ interface Message {
   };
 }
 
-export const useMessages = (chatId: string) => {
+export const useMessages = (chatId: string, userId?: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
 
   useEffect(() => {
@@ -27,6 +27,13 @@ export const useMessages = (chatId: string) => {
       };
     }
   }, [chatId]);
+
+  // Mark messages as read when viewing the chat
+  useEffect(() => {
+    if (chatId && userId && messages.length > 0) {
+      markMessagesAsRead();
+    }
+  }, [chatId, userId, messages]);
 
   const fetchMessages = async () => {
     const { data: messagesData } = await supabase
@@ -56,6 +63,43 @@ export const useMessages = (chatId: string) => {
     }
   };
 
+  const markMessagesAsRead = async () => {
+    if (!userId) return;
+
+    // Get messages from other users that haven't been marked as read
+    const otherUsersMessages = messages.filter(msg => msg.sender_id !== userId);
+    
+    if (otherUsersMessages.length === 0) return;
+
+    // Check which messages are already marked as read
+    const { data: existingReads } = await supabase
+      .from('message_reads')
+      .select('message_id')
+      .eq('user_id', userId)
+      .eq('chat_id', chatId)
+      .in('message_id', otherUsersMessages.map(msg => msg.id));
+
+    const alreadyReadMessageIds = existingReads?.map(read => read.message_id) || [];
+    
+    // Filter out messages that are already marked as read
+    const unreadMessages = otherUsersMessages.filter(
+      msg => !alreadyReadMessageIds.includes(msg.id)
+    );
+
+    if (unreadMessages.length > 0) {
+      // Mark new messages as read
+      const readRecords = unreadMessages.map(message => ({
+        user_id: userId,
+        message_id: message.id,
+        chat_id: chatId
+      }));
+
+      await supabase
+        .from('message_reads')
+        .insert(readRecords);
+    }
+  };
+
   const subscribeToMessages = () => {
     const channel = supabase
       .channel('schema-db-changes')
@@ -81,6 +125,17 @@ export const useMessages = (chatId: string) => {
           } as Message;
 
           setMessages(prev => [...prev, newMessage]);
+
+          // If the new message is from another user, mark it as read immediately since user is viewing the chat
+          if (userId && payload.new.sender_id !== userId) {
+            await supabase
+              .from('message_reads')
+              .insert({
+                user_id: userId,
+                message_id: payload.new.id,
+                chat_id: chatId
+              });
+          }
         }
       )
       .subscribe();
