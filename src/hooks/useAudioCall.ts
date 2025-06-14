@@ -82,14 +82,14 @@ export const useAudioCall = () => {
         .insert({
           caller_id: user.id,
           receiver_id: receiverId,
-          status: 'pending'
+          status: 'pending' as const
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      setCurrentCall(callData);
+      setCurrentCall(callData as Call);
 
       // Initialize WebRTC
       webrtcRef.current = new WebRTCService();
@@ -121,7 +121,7 @@ export const useAudioCall = () => {
         offer
       });
 
-      return callData;
+      return callData as Call;
     } catch (error) {
       console.error('Error starting call:', error);
       setIsConnecting(false);
@@ -162,7 +162,7 @@ export const useAudioCall = () => {
       // Update call status in database
       await supabase
         .from('calls')
-        .update({ status: 'accepted', started_at: new Date().toISOString() })
+        .update({ status: 'accepted' as const, started_at: new Date().toISOString() })
         .eq('id', call.id);
 
       // Send answer via Socket.IO
@@ -186,7 +186,7 @@ export const useAudioCall = () => {
     // Update call status in database
     await supabase
       .from('calls')
-      .update({ status: 'rejected', ended_at: new Date().toISOString() })
+      .update({ status: 'rejected' as const, ended_at: new Date().toISOString() })
       .eq('id', call.id);
 
     // Notify caller via Socket.IO
@@ -201,7 +201,7 @@ export const useAudioCall = () => {
       // Update call status in database
       await supabase
         .from('calls')
-        .update({ status: 'ended', ended_at: new Date().toISOString() })
+        .update({ status: 'ended' as const, ended_at: new Date().toISOString() })
         .eq('id', currentCall.id);
 
       // Notify other participant via Socket.IO

@@ -19,10 +19,10 @@ class SocketService {
       emit: (event: string, data: any) => {
         console.log('Emitting:', event, data);
       },
-      on: (event: string, callback: Function) => {
+      on: (event: string, callback: (...args: any[]) => void) => {
         console.log('Listening for:', event);
       },
-      off: (event: string, callback?: Function) => {
+      off: (event: string, callback?: (...args: any[]) => void) => {
         console.log('Removing listener for:', event);
       },
       disconnect: () => {
@@ -46,13 +46,13 @@ class SocketService {
     }
   }
 
-  on(event: string, callback: Function) {
+  on(event: string, callback: (...args: any[]) => void) {
     if (this.socket) {
       this.socket.on(event, callback);
     }
   }
 
-  off(event: string, callback?: Function) {
+  off(event: string, callback?: (...args: any[]) => void) {
     if (this.socket) {
       this.socket.off(event, callback);
     }
