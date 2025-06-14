@@ -35,7 +35,7 @@ export const useSocketConnection = (userId: string | undefined, handlers: Socket
     // Initial check
     checkConnection();
     
-    // Periodic checks
+    // Periodic checks (every 2 seconds)
     const connectionInterval = setInterval(checkConnection, 2000);
 
     const handleConnected = () => {
