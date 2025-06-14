@@ -22,6 +22,7 @@ export const useAudioCall = () => {
   const [isCallActive, setIsCallActive] = useState(false);
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [pendingOffer, setPendingOffer] = useState<RTCSessionDescriptionInit | null>(null);
   const webrtcRef = useRef<WebRTCService | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -30,12 +31,15 @@ export const useAudioCall = () => {
       socketService.connect(user.id);
       
       // Listen for incoming calls
-      socketService.on('incoming-call', (call: Call) => {
+      socketService.on('incoming-call', (call: Call, offer: RTCSessionDescriptionInit) => {
+        console.log('Incoming call received:', call);
         setIncomingCall(call);
+        setPendingOffer(offer);
       });
 
       // Listen for call accepted
       socketService.on('call-accepted', async (data: { callId: string, answer: RTCSessionDescriptionInit }) => {
+        console.log('Call accepted:', data);
         if (webrtcRef.current) {
           await webrtcRef.current.handleAnswer(data.answer);
           setIsCallActive(true);
@@ -45,6 +49,7 @@ export const useAudioCall = () => {
 
       // Listen for call rejected
       socketService.on('call-rejected', () => {
+        console.log('Call rejected');
         setCurrentCall(null);
         setIsConnecting(false);
         if (webrtcRef.current) {
@@ -54,11 +59,13 @@ export const useAudioCall = () => {
 
       // Listen for call ended
       socketService.on('call-ended', () => {
+        console.log('Call ended by other party');
         endCall();
       });
 
       // Listen for ICE candidates
       socketService.on('ice-candidate', async (candidate: RTCIceCandidateInit) => {
+        console.log('Received ICE candidate:', candidate);
         if (webrtcRef.current) {
           await webrtcRef.current.addIceCandidate(candidate);
         }
@@ -113,7 +120,7 @@ export const useAudioCall = () => {
       // Create offer
       const offer = await webrtcRef.current.startCall();
 
-      // Send call invitation via Socket.IO
+      // Send call invitation via WebSocket
       socketService.emit('call-user', {
         callId: callData.id,
         callerId: user.id,
@@ -129,8 +136,8 @@ export const useAudioCall = () => {
     }
   }, [user]);
 
-  const answerCall = useCallback(async (call: Call, offer: RTCSessionDescriptionInit) => {
-    if (!user) return;
+  const answerCall = useCallback(async (call: Call) => {
+    if (!user || !pendingOffer) return;
 
     try {
       setIncomingCall(null);
@@ -156,8 +163,8 @@ export const useAudioCall = () => {
         });
       };
 
-      // Answer the call
-      const answer = await webrtcRef.current.answerCall(offer);
+      // Answer the call with the pending offer
+      const answer = await webrtcRef.current.answerCall(pendingOffer);
 
       // Update call status in database
       await supabase
@@ -165,7 +172,7 @@ export const useAudioCall = () => {
         .update({ status: 'accepted' as const, started_at: new Date().toISOString() })
         .eq('id', call.id);
 
-      // Send answer via Socket.IO
+      // Send answer via WebSocket
       socketService.emit('answer-call', {
         callId: call.id,
         answer,
@@ -174,14 +181,17 @@ export const useAudioCall = () => {
 
       setIsCallActive(true);
       setIsConnecting(false);
+      setPendingOffer(null);
     } catch (error) {
       console.error('Error answering call:', error);
       setIsConnecting(false);
+      setPendingOffer(null);
     }
-  }, [user]);
+  }, [user, pendingOffer]);
 
   const rejectCall = useCallback(async (call: Call) => {
     setIncomingCall(null);
+    setPendingOffer(null);
 
     // Update call status in database
     await supabase
@@ -189,7 +199,7 @@ export const useAudioCall = () => {
       .update({ status: 'rejected' as const, ended_at: new Date().toISOString() })
       .eq('id', call.id);
 
-    // Notify caller via Socket.IO
+    // Notify caller via WebSocket
     socketService.emit('reject-call', {
       callId: call.id,
       targetUserId: call.caller_id
@@ -204,7 +214,7 @@ export const useAudioCall = () => {
         .update({ status: 'ended' as const, ended_at: new Date().toISOString() })
         .eq('id', currentCall.id);
 
-      // Notify other participant via Socket.IO
+      // Notify other participant via WebSocket
       const targetUserId = currentCall.caller_id === user?.id 
         ? currentCall.receiver_id 
         : currentCall.caller_id;
@@ -225,6 +235,7 @@ export const useAudioCall = () => {
     setCurrentCall(null);
     setIsCallActive(false);
     setIsConnecting(false);
+    setPendingOffer(null);
   }, [currentCall, user]);
 
   return {

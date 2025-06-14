@@ -30,12 +30,7 @@ const CallContainer: React.FC = () => {
 
   const handleAnswerCall = () => {
     if (incomingCall) {
-      // In a real implementation, you'd get the offer from the Socket.IO event
-      const mockOffer: RTCSessionDescriptionInit = {
-        type: 'offer',
-        sdp: ''
-      };
-      answerCall(incomingCall, mockOffer);
+      answerCall(incomingCall);
     }
   };
 
