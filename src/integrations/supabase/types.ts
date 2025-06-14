@@ -9,39 +9,6 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      calls: {
-        Row: {
-          caller_id: string | null
-          created_at: string | null
-          ended_at: string | null
-          id: string
-          receiver_id: string | null
-          started_at: string | null
-          status: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          caller_id?: string | null
-          created_at?: string | null
-          ended_at?: string | null
-          id?: string
-          receiver_id?: string | null
-          started_at?: string | null
-          status?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          caller_id?: string | null
-          created_at?: string | null
-          ended_at?: string | null
-          id?: string
-          receiver_id?: string | null
-          started_at?: string | null
-          status?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       chat_participants: {
         Row: {
           chat_id: string
