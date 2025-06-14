@@ -3,13 +3,13 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatInfo } from '@/hooks/useChatInfo';
 import { useMessages } from '@/hooks/useMessages';
-import { useCalls } from '@/hooks/useCalls';
+import { useSimpleCalls } from '@/hooks/useSimpleCalls';
+import { useNotifications } from '@/hooks/useNotifications';
 import ChatHeader from './ChatHeader';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ImageUploader from './ImageUploader';
-import IncomingCallModal from './IncomingCallModal';
-import CallWindow from './CallWindow';
+import SimpleCallWindow from './SimpleCallWindow';
 import { useToast } from '@/hooks/use-toast';
 
 interface ChatWindowProps {
@@ -21,12 +21,26 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   const { user } = useAuth();
   const { chatInfo } = useChatInfo(chatId, user?.id);
   const { messages, sendMessage } = useMessages(chatId);
-  const { incomingCall, activeCall, initiateCall, acceptCall, rejectCall, endCall } = useCalls(chatId);
+  const { activeCall, initiateCall, endCall } = useSimpleCalls();
+  const { addNotification } = useNotifications();
   const { toast } = useToast();
 
   const handleSendMessage = async (message: string) => {
     if (!user) return false;
-    return await sendMessage(message, user.id);
+    const success = await sendMessage(message, user.id);
+    
+    // Show notification for new message
+    if (success && chatInfo?.otherParticipant) {
+      addNotification({
+        type: 'message',
+        title: chatInfo.otherParticipant.display_name,
+        message: message.length > 50 ? message.substring(0, 50) + '...' : message,
+        avatar: chatInfo.otherParticipant.avatar_url,
+        autoClose: 3000
+      });
+    }
+    
+    return success;
   };
 
   const handleSendAudio = async (audioUrl: string) => {
@@ -46,7 +60,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   const handleAudioCall = async () => {
     if (!user || !chatInfo?.otherParticipant) return;
     
-    const call = await initiateCall(chatInfo.otherParticipant.id, 'audio');
+    const call = initiateCall(chatInfo.otherParticipant.display_name, 'audio');
     if (!call) {
       toast({
         title: "Call Failed",
@@ -59,31 +73,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
   const handleVideoCall = async () => {
     if (!user || !chatInfo?.otherParticipant) return;
     
-    const call = await initiateCall(chatInfo.otherParticipant.id, 'video');
+    const call = initiateCall(chatInfo.otherParticipant.display_name, 'video');
     if (!call) {
       toast({
         title: "Call Failed",
         description: "Unable to initiate call. Please try again.",
         variant: "destructive"
       });
-    }
-  };
-
-  const handleAcceptCall = async () => {
-    if (incomingCall) {
-      await acceptCall(incomingCall.id);
-    }
-  };
-
-  const handleRejectCall = async () => {
-    if (incomingCall) {
-      await rejectCall(incomingCall.id);
-    }
-  };
-
-  const handleEndCall = async () => {
-    if (activeCall) {
-      await endCall(activeCall.id);
     }
   };
 
@@ -134,25 +130,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
         )}
       </div>
 
-      {incomingCall && (
-        <IncomingCallModal
-          isOpen={true}
-          callerName={chatInfo.otherParticipant?.display_name || 'Unknown User'}
-          callType={incomingCall.call_type}
-          onAccept={handleAcceptCall}
-          onReject={handleRejectCall}
-        />
-      )}
-
       {activeCall && (
-        <CallWindow
-          callId={activeCall.id}
-          isInitiator={activeCall.caller_id === user?.id}
-          callType={activeCall.call_type}
-          callerName={user?.user_metadata?.display_name || 'You'}
-          calleeName={chatInfo.otherParticipant?.display_name || 'Unknown User'}
-          onEndCall={handleEndCall}
-          offer={activeCall.offer}
+        <SimpleCallWindow
+          callType={activeCall.callType}
+          callerName={activeCall.callerName}
+          calleeName={activeCall.calleeName}
+          isInitiator={activeCall.isInitiator}
+          onEndCall={endCall}
         />
       )}
     </>

@@ -4,13 +4,14 @@ import { MessageSquare } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import ProfileSettings from './ProfileSettings';
+import NotificationContainer from './NotificationContainer';
 
 const ChatApp: React.FC = () => {
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [showProfile, setShowProfile] = useState(false);
 
   return (
-    <div className="h-screen bg-gray-100 flex">
+    <div className="h-screen bg-gray-100 flex relative">
       {/* Sidebar */}
       <div className="w-full md:w-96 bg-white border-r border-gray-300 flex flex-col">
         <Sidebar
@@ -39,6 +40,9 @@ const ChatApp: React.FC = () => {
       {showProfile && (
         <ProfileSettings onClose={() => setShowProfile(false)} />
       )}
+
+      {/* Notification Container */}
+      <NotificationContainer />
     </div>
   );
 };
