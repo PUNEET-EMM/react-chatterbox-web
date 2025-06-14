@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { useWebRTC } from '@/hooks/useWebRTC';
+import { supabase } from '@/integrations/supabase/client';
 
 interface CallWindowProps {
   callId: string;
@@ -28,11 +29,13 @@ const CallWindow: React.FC<CallWindowProps> = ({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(callType === 'video');
+  const [callStatus, setCallStatus] = useState<string>('Connecting...');
 
-  const { createOffer, createAnswer, endCall, isConnected } = useWebRTC({
+  const { createOffer, createAnswer, processAnswer, addIceCandidate, endCall, isConnected } = useWebRTC({
     callId,
     isInitiator,
     onRemoteStream: (stream) => {
+      console.log('Remote stream received in CallWindow');
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = stream;
       }
@@ -40,30 +43,83 @@ const CallWindow: React.FC<CallWindowProps> = ({
     onCallEnd: onEndCall
   });
 
+  // Subscribe to call updates for WebRTC signaling
+  useEffect(() => {
+    console.log('Setting up WebRTC signaling subscription for call:', callId);
+    
+    const channel = supabase
+      .channel(`call-${callId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'calls',
+          filter: `id=eq.${callId}`
+        },
+        async (payload) => {
+          console.log('Call update received for WebRTC:', payload);
+          const call = payload.new as any;
+          
+          if (call.answer && isInitiator && !localStream) {
+            console.log('Processing answer as initiator');
+            await processAnswer(call.answer);
+          }
+          
+          if (call.ice_candidates && Array.isArray(call.ice_candidates)) {
+            const candidates = call.ice_candidates;
+            console.log('Processing ICE candidates:', candidates.length);
+            
+            for (const candidate of candidates) {
+              await addIceCandidate(candidate);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [callId, isInitiator, processAnswer, addIceCandidate, localStream]);
+
   useEffect(() => {
     const initializeCall = async () => {
       try {
+        console.log('Initializing call - isInitiator:', isInitiator, 'offer:', offer);
+        
         if (isInitiator) {
+          console.log('Creating offer as initiator');
           const stream = await createOffer(callType === 'video');
           setLocalStream(stream);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
+          setCallStatus('Calling...');
         } else if (offer) {
+          console.log('Creating answer as callee');
           const stream = await createAnswer(offer, callType === 'video');
           setLocalStream(stream);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
+          setCallStatus('Connecting...');
         }
       } catch (error) {
         console.error('Error initializing call:', error);
-        onEndCall();
+        setCallStatus('Connection failed');
+        setTimeout(() => {
+          onEndCall();
+        }, 2000);
       }
     };
 
     initializeCall();
   }, [callId, isInitiator, callType, offer, createOffer, createAnswer, onEndCall]);
+
+  useEffect(() => {
+    setCallStatus(isConnected ? 'Connected' : 'Connecting...');
+  }, [isConnected]);
 
   const toggleMute = () => {
     if (localStream) {
@@ -84,6 +140,7 @@ const CallWindow: React.FC<CallWindowProps> = ({
   };
 
   const handleEndCall = async () => {
+    console.log('End call button clicked');
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
     }
@@ -98,7 +155,7 @@ const CallWindow: React.FC<CallWindowProps> = ({
             {isInitiator ? `Calling ${calleeName}` : `Call from ${callerName}`}
           </h2>
           <div className="text-sm text-gray-500">
-            {isConnected ? 'Connected' : 'Connecting...'}
+            {callStatus}
           </div>
         </div>
 
@@ -141,7 +198,7 @@ const CallWindow: React.FC<CallWindowProps> = ({
                   {isInitiator ? calleeName : callerName}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {isConnected ? 'Connected' : 'Connecting...'}
+                  {callStatus}
                 </p>
               </div>
             </div>

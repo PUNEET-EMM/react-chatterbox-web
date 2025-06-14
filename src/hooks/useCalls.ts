@@ -25,6 +25,8 @@ export const useCalls = (chatId?: string) => {
   const initiateCall = useCallback(async (calleeId: string, callType: 'audio' | 'video') => {
     if (!user || !chatId) return null;
 
+    console.log('Initiating call:', { calleeId, callType, chatId });
+
     const { data: call, error } = await supabase
       .from('calls')
       .insert({
@@ -42,44 +44,65 @@ export const useCalls = (chatId?: string) => {
       return null;
     }
 
+    console.log('Call created successfully:', call);
     return call;
   }, [user, chatId]);
 
   const acceptCall = useCallback(async (callId: string) => {
-    await supabase
+    console.log('Accepting call:', callId);
+    
+    const { error } = await supabase
       .from('calls')
       .update({ status: 'accepted' })
       .eq('id', callId);
-    
-    setIncomingCall(null);
+
+    if (error) {
+      console.error('Error accepting call:', error);
+    } else {
+      setIncomingCall(null);
+    }
   }, []);
 
   const rejectCall = useCallback(async (callId: string) => {
-    await supabase
+    console.log('Rejecting call:', callId);
+    
+    const { error } = await supabase
       .from('calls')
       .update({ 
         status: 'rejected',
         ended_at: new Date().toISOString()
       })
       .eq('id', callId);
-    
-    setIncomingCall(null);
+
+    if (error) {
+      console.error('Error rejecting call:', error);
+    } else {
+      setIncomingCall(null);
+    }
   }, []);
 
   const endCall = useCallback(async (callId: string) => {
-    await supabase
+    console.log('Ending call:', callId);
+    
+    const { error } = await supabase
       .from('calls')
       .update({ 
         status: 'ended',
         ended_at: new Date().toISOString()
       })
       .eq('id', callId);
-    
-    setActiveCall(null);
+
+    if (error) {
+      console.error('Error ending call:', error);
+    } else {
+      setActiveCall(null);
+    }
   }, []);
 
   useEffect(() => {
     if (!user) return;
+
+    console.log('Setting up calls subscription for user:', user.id);
 
     const channel = supabase
       .channel('calls-changes')
@@ -89,15 +112,14 @@ export const useCalls = (chatId?: string) => {
           event: '*',
           schema: 'public',
           table: 'calls',
-          filter: `caller_id=eq.${user.id},callee_id=eq.${user.id}`
+          filter: `caller_id=eq.${user.id}`
         },
         (payload) => {
+          console.log('Call change received (as caller):', payload);
           const call = payload.new as Call;
           
-          if (payload.eventType === 'INSERT' && call.callee_id === user.id) {
-            setIncomingCall(call);
-          } else if (payload.eventType === 'UPDATE') {
-            if (call.status === 'accepted' && (call.caller_id === user.id || call.callee_id === user.id)) {
+          if (payload.eventType === 'UPDATE') {
+            if (call.status === 'accepted') {
               setActiveCall(call);
               setIncomingCall(null);
             } else if (call.status === 'ended' || call.status === 'rejected') {
@@ -107,9 +129,37 @@ export const useCalls = (chatId?: string) => {
           }
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'calls',
+          filter: `callee_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Call change received (as callee):', payload);
+          const call = payload.new as Call;
+          
+          if (payload.eventType === 'INSERT' && call.status === 'pending') {
+            setIncomingCall(call);
+          } else if (payload.eventType === 'UPDATE') {
+            if (call.status === 'accepted') {
+              setActiveCall(call);
+              setIncomingCall(null);
+            } else if (call.status === 'ended' || call.status === 'rejected') {
+              setActiveCall(null);
+              setIncomingCall(null);
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Calls channel subscription status:', status);
+      });
 
     return () => {
+      console.log('Cleaning up calls subscription');
       supabase.removeChannel(channel);
     };
   }, [user]);
