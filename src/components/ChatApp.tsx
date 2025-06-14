@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import ProfileSettings from './ProfileSettings';
 import NotificationContainer from './NotificationContainer';
+import CallContainer from './CallContainer';
 
 const ChatApp: React.FC = () => {
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
@@ -43,6 +44,9 @@ const ChatApp: React.FC = () => {
 
       {/* Notification Container */}
       <NotificationContainer />
+      
+      {/* Call Container */}
+      <CallContainer />
     </div>
   );
 };

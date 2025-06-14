@@ -72,12 +72,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId }) => {
     ? 'Group Chat' 
     : chatInfo.otherParticipant?.status || 'Offline';
 
+  const otherUserId = !chatInfo.is_group 
+    ? chatInfo.otherParticipant?.id 
+    : undefined;
+
   return (
     <div className="flex-1 flex flex-col bg-gray-50 max-h-screen overflow-hidden">
       <ChatHeader 
         displayName={displayName}
         avatarUrl={avatarUrl}
         status={status}
+        otherUserId={otherUserId}
+        chatId={chatId}
       />
       
       <MessageList messages={messages} />

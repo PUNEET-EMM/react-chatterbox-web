@@ -1,0 +1,241 @@
+
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { WebRTCService } from '@/services/webrtc';
+import { socketService } from '@/services/socket';
+
+export interface Call {
+  id: string;
+  caller_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'ended' | 'missed';
+  started_at: string;
+  ended_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const useAudioCall = () => {
+  const { user } = useAuth();
+  const [currentCall, setCurrentCall] = useState<Call | null>(null);
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<Call | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const webrtcRef = useRef<WebRTCService | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      socketService.connect(user.id);
+      
+      // Listen for incoming calls
+      socketService.on('incoming-call', (call: Call) => {
+        setIncomingCall(call);
+      });
+
+      // Listen for call accepted
+      socketService.on('call-accepted', async (data: { callId: string, answer: RTCSessionDescriptionInit }) => {
+        if (webrtcRef.current) {
+          await webrtcRef.current.handleAnswer(data.answer);
+          setIsCallActive(true);
+          setIsConnecting(false);
+        }
+      });
+
+      // Listen for call rejected
+      socketService.on('call-rejected', () => {
+        setCurrentCall(null);
+        setIsConnecting(false);
+        if (webrtcRef.current) {
+          webrtcRef.current.endCall();
+        }
+      });
+
+      // Listen for call ended
+      socketService.on('call-ended', () => {
+        endCall();
+      });
+
+      // Listen for ICE candidates
+      socketService.on('ice-candidate', async (candidate: RTCIceCandidateInit) => {
+        if (webrtcRef.current) {
+          await webrtcRef.current.addIceCandidate(candidate);
+        }
+      });
+
+      return () => {
+        socketService.disconnect();
+      };
+    }
+  }, [user]);
+
+  const startCall = useCallback(async (receiverId: string) => {
+    if (!user) return null;
+
+    try {
+      setIsConnecting(true);
+      
+      // Create call record in database
+      const { data: callData, error } = await supabase
+        .from('calls')
+        .insert({
+          caller_id: user.id,
+          receiver_id: receiverId,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setCurrentCall(callData);
+
+      // Initialize WebRTC
+      webrtcRef.current = new WebRTCService();
+      
+      // Set up remote stream handler
+      webrtcRef.current.onRemoteStream((stream) => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = stream;
+        }
+      });
+
+      // Set up ICE candidate handler
+      webrtcRef.current.onIceCandidate = (candidate) => {
+        socketService.emit('ice-candidate', {
+          callId: callData.id,
+          candidate,
+          targetUserId: receiverId
+        });
+      };
+
+      // Create offer
+      const offer = await webrtcRef.current.startCall();
+
+      // Send call invitation via Socket.IO
+      socketService.emit('call-user', {
+        callId: callData.id,
+        callerId: user.id,
+        receiverId,
+        offer
+      });
+
+      return callData;
+    } catch (error) {
+      console.error('Error starting call:', error);
+      setIsConnecting(false);
+      return null;
+    }
+  }, [user]);
+
+  const answerCall = useCallback(async (call: Call, offer: RTCSessionDescriptionInit) => {
+    if (!user) return;
+
+    try {
+      setIncomingCall(null);
+      setCurrentCall(call);
+      setIsConnecting(true);
+
+      // Initialize WebRTC
+      webrtcRef.current = new WebRTCService();
+      
+      // Set up remote stream handler
+      webrtcRef.current.onRemoteStream((stream) => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = stream;
+        }
+      });
+
+      // Set up ICE candidate handler
+      webrtcRef.current.onIceCandidate = (candidate) => {
+        socketService.emit('ice-candidate', {
+          callId: call.id,
+          candidate,
+          targetUserId: call.caller_id
+        });
+      };
+
+      // Answer the call
+      const answer = await webrtcRef.current.answerCall(offer);
+
+      // Update call status in database
+      await supabase
+        .from('calls')
+        .update({ status: 'accepted', started_at: new Date().toISOString() })
+        .eq('id', call.id);
+
+      // Send answer via Socket.IO
+      socketService.emit('answer-call', {
+        callId: call.id,
+        answer,
+        targetUserId: call.caller_id
+      });
+
+      setIsCallActive(true);
+      setIsConnecting(false);
+    } catch (error) {
+      console.error('Error answering call:', error);
+      setIsConnecting(false);
+    }
+  }, [user]);
+
+  const rejectCall = useCallback(async (call: Call) => {
+    setIncomingCall(null);
+
+    // Update call status in database
+    await supabase
+      .from('calls')
+      .update({ status: 'rejected', ended_at: new Date().toISOString() })
+      .eq('id', call.id);
+
+    // Notify caller via Socket.IO
+    socketService.emit('reject-call', {
+      callId: call.id,
+      targetUserId: call.caller_id
+    });
+  }, []);
+
+  const endCall = useCallback(async () => {
+    if (currentCall) {
+      // Update call status in database
+      await supabase
+        .from('calls')
+        .update({ status: 'ended', ended_at: new Date().toISOString() })
+        .eq('id', currentCall.id);
+
+      // Notify other participant via Socket.IO
+      const targetUserId = currentCall.caller_id === user?.id 
+        ? currentCall.receiver_id 
+        : currentCall.caller_id;
+
+      socketService.emit('end-call', {
+        callId: currentCall.id,
+        targetUserId
+      });
+    }
+
+    // Clean up WebRTC
+    if (webrtcRef.current) {
+      webrtcRef.current.endCall();
+      webrtcRef.current = null;
+    }
+
+    // Reset state
+    setCurrentCall(null);
+    setIsCallActive(false);
+    setIsConnecting(false);
+  }, [currentCall, user]);
+
+  return {
+    currentCall,
+    isCallActive,
+    incomingCall,
+    isConnecting,
+    startCall,
+    answerCall,
+    rejectCall,
+    endCall,
+    remoteAudioRef
+  };
+};

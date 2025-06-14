@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import CallButton from './CallButton';
 
 interface ChatHeaderProps {
   displayName: string;
@@ -13,7 +14,8 @@ interface ChatHeaderProps {
 const ChatHeader: React.FC<ChatHeaderProps> = ({ 
   displayName, 
   avatarUrl, 
-  status
+  status,
+  otherUserId
 }) => {
   return (
     <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
@@ -27,6 +29,12 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
           <p className="text-sm text-gray-500">{status}</p>
         </div>
       </div>
+      
+      {otherUserId && (
+        <div className="flex items-center space-x-2">
+          <CallButton userId={otherUserId} />
+        </div>
+      )}
     </div>
   );
 };
