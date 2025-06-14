@@ -2,21 +2,34 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import type { Json } from '@/integrations/supabase/types';
 
 export interface Call {
   id: string;
   caller_id: string;
   callee_id: string;
   chat_id?: string;
-  offer?: any;
-  answer?: any;
-  ice_candidates?: any[];
+  offer?: Json;
+  answer?: Json;
+  ice_candidates?: Json;
   call_type: string;
   status: 'calling' | 'accepted' | 'rejected' | 'ended';
   started_at: string;
   ended_at?: string;
   created_at: string;
 }
+
+// Helper function to convert WebRTC objects to Json
+const toJson = (obj: any): Json => {
+  return JSON.parse(JSON.stringify(obj));
+};
+
+// Helper function to safely get ice candidates array
+const getIceCandidatesArray = (candidates: Json | null): any[] => {
+  if (!candidates) return [];
+  if (Array.isArray(candidates)) return candidates;
+  return [];
+};
 
 export const useAudioCall = () => {
   const { user } = useAuth();
@@ -60,12 +73,12 @@ export const useAudioCall = () => {
           .single();
 
         if (existingCall) {
-          const candidates = existingCall.ice_candidates || [];
-          candidates.push(event.candidate);
+          const candidates = getIceCandidatesArray(existingCall.ice_candidates);
+          candidates.push(toJson(event.candidate));
           
           await supabase
             .from('calls')
-            .update({ ice_candidates: candidates })
+            .update({ ice_candidates: toJson(candidates) })
             .eq('id', currentCall.id);
         }
       }
@@ -111,10 +124,10 @@ export const useAudioCall = () => {
       const { data: newCall, error } = await supabase
         .from('calls')
         .insert({
-          caller_id: user?.id,
+          caller_id: user?.id!,
           callee_id: calleeId,
           chat_id: chatId,
-          offer: offer,
+          offer: toJson(offer),
           call_type: 'audio',
           status: 'calling'
         })
@@ -123,7 +136,7 @@ export const useAudioCall = () => {
 
       if (error) throw error;
 
-      setCurrentCall(newCall);
+      setCurrentCall(newCall as Call);
       setIsInCall(true);
       
       // Start call timer
@@ -157,7 +170,9 @@ export const useAudioCall = () => {
       });
 
       // Set remote description (caller's offer)
-      await pc.setRemoteDescription(call.offer);
+      if (call.offer) {
+        await pc.setRemoteDescription(call.offer as RTCSessionDescriptionInit);
+      }
 
       // Create answer
       const answer = await pc.createAnswer();
@@ -167,7 +182,7 @@ export const useAudioCall = () => {
       const { error } = await supabase
         .from('calls')
         .update({
-          answer: answer,
+          answer: toJson(answer),
           status: 'accepted'
         })
         .eq('id', call.id);
@@ -292,7 +307,7 @@ export const useAudioCall = () => {
           
           if (updatedCall.status === 'accepted' && updatedCall.answer && peerConnectionRef.current) {
             // Set remote description (callee's answer)
-            await peerConnectionRef.current.setRemoteDescription(updatedCall.answer);
+            await peerConnectionRef.current.setRemoteDescription(updatedCall.answer as RTCSessionDescriptionInit);
           } else if (updatedCall.status === 'rejected') {
             endCall();
           } else if (updatedCall.status === 'ended') {
