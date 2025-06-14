@@ -31,6 +31,16 @@ const getIceCandidatesArray = (candidates: Json | null): any[] => {
   return [];
 };
 
+// Helper function to safely convert Json to RTCSessionDescriptionInit
+const jsonToRTCSessionDescription = (json: Json): RTCSessionDescriptionInit | null => {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  const obj = json as Record<string, any>;
+  if (obj.type && obj.sdp) {
+    return obj as RTCSessionDescriptionInit;
+  }
+  return null;
+};
+
 export const useAudioCall = () => {
   const { user } = useAuth();
   const [currentCall, setCurrentCall] = useState<Call | null>(null);
@@ -43,6 +53,7 @@ export const useAudioCall = () => {
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const channelRef = useRef<any>(null);
 
   // WebRTC configuration
   const rtcConfig = {
@@ -171,7 +182,10 @@ export const useAudioCall = () => {
 
       // Set remote description (caller's offer)
       if (call.offer) {
-        await pc.setRemoteDescription(call.offer as RTCSessionDescriptionInit);
+        const rtcOffer = jsonToRTCSessionDescription(call.offer);
+        if (rtcOffer) {
+          await pc.setRemoteDescription(rtcOffer);
+        }
       }
 
       // Create answer
@@ -278,8 +292,14 @@ export const useAudioCall = () => {
   useEffect(() => {
     if (!user) return;
 
+    // Cleanup existing channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
     const channel = supabase
-      .channel('calls')
+      .channel(`calls_${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -307,7 +327,10 @@ export const useAudioCall = () => {
           
           if (updatedCall.status === 'accepted' && updatedCall.answer && peerConnectionRef.current) {
             // Set remote description (callee's answer)
-            await peerConnectionRef.current.setRemoteDescription(updatedCall.answer as RTCSessionDescriptionInit);
+            const rtcAnswer = jsonToRTCSessionDescription(updatedCall.answer);
+            if (rtcAnswer) {
+              await peerConnectionRef.current.setRemoteDescription(rtcAnswer);
+            }
           } else if (updatedCall.status === 'rejected') {
             endCall();
           } else if (updatedCall.status === 'ended') {
@@ -335,11 +358,17 @@ export const useAudioCall = () => {
           
           setCurrentCall(updatedCall);
         }
-      )
-      .subscribe();
+      );
+
+    // Store channel reference and subscribe
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [user, endCall]);
 
@@ -354,6 +383,9 @@ export const useAudioCall = () => {
       }
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
+      }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
       }
     };
   }, []);
