@@ -99,6 +99,14 @@ export const useMessages = (chatId: string) => {
         media_url: mediaUrl
       });
 
+    // Update chat's updated_at timestamp
+    if (!error) {
+      await supabase
+        .from('chats')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', chatId);
+    }
+
     return !error;
   };
 

@@ -6,21 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useChatSummaries } from '@/hooks/useChatSummaries';
 
 interface Profile {
   id: string;
   display_name: string;
   status: string;
   avatar_url?: string;
-}
-
-interface Chat {
-  id: string;
-  name?: string;
-  is_group: boolean;
-  lastMessage?: string;
-  lastMessageTime?: string;
-  otherParticipant?: Profile;
 }
 
 interface SidebarProps {
@@ -30,74 +22,11 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowProfile }) => {
-  const [chats, setChats] = useState<Chat[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const { user, signOut } = useAuth();
-
-  useEffect(() => {
-    if (user) {
-      fetchChats();
-    }
-  }, [user]);
-
-  const fetchChats = async () => {
-    if (!user) return;
-
-    const { data: chatParticipants } = await supabase
-      .from('chat_participants')
-      .select('chat_id')
-      .eq('user_id', user.id);
-
-    if (chatParticipants) {
-      const chatIds = chatParticipants.map(cp => cp.chat_id);
-      
-      const { data: chatsData } = await supabase
-        .from('chats')
-        .select('*')
-        .in('id', chatIds)
-        .order('updated_at', { ascending: false });
-
-      if (chatsData) {
-        const chatsWithDetails = await Promise.all(
-          chatsData.map(async (chat) => {
-            let chatInfo: Chat = {
-              id: chat.id,
-              name: chat.name,
-              is_group: chat.is_group
-            };
-
-            if (!chat.is_group) {
-              // Get other participant
-              const { data: otherParticipantData } = await supabase
-                .from('chat_participants')
-                .select('user_id')
-                .eq('chat_id', chat.id)
-                .neq('user_id', user.id)
-                .single();
-
-              if (otherParticipantData) {
-                const { data: profileData } = await supabase
-                  .from('profiles')
-                  .select('*')
-                  .eq('id', otherParticipantData.user_id)
-                  .single();
-
-                if (profileData) {
-                  chatInfo.otherParticipant = profileData;
-                }
-              }
-            }
-
-            return chatInfo;
-          })
-        );
-
-        setChats(chatsWithDetails);
-      }
-    }
-  };
+  const { chatSummaries, markChatAsRead } = useChatSummaries(user?.id);
 
   const searchUsers = async (searchTerm: string) => {
     if (!searchTerm.trim()) {
@@ -131,7 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
           .select('user_id')
           .eq('chat_id', participant.chat_id)
           .eq('user_id', otherUserId)
-          .single();
+          .maybeSingle();
 
         if (otherParticipant) {
           onSelectChat(participant.chat_id);
@@ -164,12 +93,36 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
       onSelectChat(newChat.id);
       setShowSearch(false);
       setSearchTerm('');
-      fetchChats();
     }
+  };
+
+  const handleSelectChat = (chatId: string) => {
+    markChatAsRead(chatId);
+    onSelectChat(chatId);
   };
 
   const handleLogout = async () => {
     await signOut();
+  };
+
+  const formatTime = (timeString: string) => {
+    const date = new Date(timeString);
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInHours = diffInMs / (1000 * 60 * 60);
+
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+      });
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    }
   };
 
   return (
@@ -240,7 +193,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
-        {chats.length === 0 ? (
+        {chatSummaries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-gray-500">
             <MessageSquare className="h-8 w-8 mb-2" />
             <p className="text-sm">No chats yet</p>
@@ -248,17 +201,17 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {chats.map((chat) => {
+            {chatSummaries.map((chat) => {
               const displayName = chat.is_group ? chat.name : chat.otherParticipant?.display_name || 'Unknown User';
               const avatarUrl = chat.is_group ? '' : chat.otherParticipant?.avatar_url;
               
               return (
                 <div
                   key={chat.id}
-                  className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
+                  className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors relative ${
                     selectedChat === chat.id ? 'bg-green-100' : 'hover:bg-gray-50'
                   }`}
-                  onClick={() => onSelectChat(chat.id)}
+                  onClick={() => handleSelectChat(chat.id)}
                 >
                   <div className="relative">
                     <Avatar className="w-12 h-12">
@@ -283,11 +236,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
                       </p>
                       {chat.lastMessageTime && (
                         <p className="text-xs text-gray-500">
-                          {new Date(chat.lastMessageTime).toLocaleTimeString('en-US', { 
-                            hour: 'numeric', 
-                            minute: '2-digit',
-                            hour12: true 
-                          })}
+                          {formatTime(chat.lastMessageTime)}
                         </p>
                       )}
                     </div>
@@ -295,6 +244,13 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedChat, onSelectChat, onShowPro
                       <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
                     )}
                   </div>
+
+                  {/* Unread message indicator */}
+                  {chat.unreadCount > 0 && (
+                    <div className="absolute top-2 right-2 bg-green-500 text-white text-xs rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
+                      {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+                    </div>
+                  )}
                 </div>
               );
             })}
